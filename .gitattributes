@@ -1,0 +1,16 @@
+# ===== Git LFS：图片 / PDF / Word 等二进制素材 =====
+# 图片素材（报告插图、上板原始照片）
+*.jpg   filter=lfs diff=lfs merge=lfs -text
+*.jpeg  filter=lfs diff=lfs merge=lfs -text
+*.png   filter=lfs diff=lfs merge=lfs -text
+*.heic  filter=lfs diff=lfs merge=lfs -text
+*.bmp   filter=lfs diff=lfs merge=lfs -text
+*.gif   filter=lfs diff=lfs merge=lfs -text
+# 文档成品与课程资料
+*.pdf   filter=lfs diff=lfs merge=lfs -text
+*.docx  filter=lfs diff=lfs merge=lfs -text
+*.doc   filter=lfs diff=lfs merge=lfs -text
+*.pptx  filter=lfs diff=lfs merge=lfs -text
+*.xlsx  filter=lfs diff=lfs merge=lfs -text
+# 压缩包
+*.zip   filter=lfs diff=lfs merge=lfs -text

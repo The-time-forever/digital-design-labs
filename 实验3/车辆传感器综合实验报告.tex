@@ -1,0 +1,427 @@
+\documentclass[UTF8,a4paper,12pt]{ctexart}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{tikz}
+\usepackage{hyperref}
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=black,
+  urlcolor=blue
+}
+\emergencystretch=2em
+
+\lstdefinestyle{cstyle}{
+  language=C,
+  basicstyle=\ttfamily\small,
+  keywordstyle=\color{blue!60!black},
+  commentstyle=\color{green!40!black},
+  stringstyle=\color{red!60!black},
+  numbers=left,
+  numberstyle=\tiny\color{gray},
+  frame=single,
+  breaklines=true,
+  columns=fullflexible,
+  tabsize=4
+}
+\lstset{style=cstyle}
+
+\title{树莓派车辆传感器综合实验报告}
+\author{姓名：\underline{\hspace{2.4cm}}\quad 学号：\underline{\hspace{3.2cm}}\quad 班级：\underline{\hspace{2.4cm}}}
+\date{2026年6月9日}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+本实验完成指导书中“车辆传感器”场景的综合设计。系统以 Raspberry Pi 4B 为控制核心，使用 C 语言、wiringPi、wiringPiI2C 和 makefile 组织工程，实现自动大灯、自动雨刷、障碍物报警、行驶里程计量和姿态感知五项功能。其中自动大灯功能按光敏电阻采样值进行红灯提示：LCD 显示 \texttt{Light:ON} 时红灯亮，显示 \texttt{Light:OFF} 时红灯未亮。工程采用模块化结构，将 PCF8591 光敏采集、雨滴数字输入、HC-SR04 超声波测距、旋转编码器计数、MPU6050 姿态解算、LCD1602 显示和蜂鸣器报警分别封装，再由主循环统一采集状态、更新执行器并输出调试信息。实验照片显示了硬件接线、红灯指示、LCD 页面轮播、障碍物/侧翻报警以及终端运行数据，能够证明系统完成了车辆传感器综合任务的基本功能。
+\end{abstract}
+
+\section{实验目的}
+
+本实验要求实现几种传感器的组合，模拟车辆传感器场景。根据实验指导书，场景一包括以下任务：
+
+\begin{enumerate}
+  \item 自动大灯：通过光敏传感器获取环境亮度信息，以 120 为阈值判断状态；LCD 显示 \texttt{Light:ON} 时红灯亮，显示 \texttt{Light:OFF} 时红灯未亮。
+  \item 自动雨刷：通过雨滴传感器判断是否有雨水，雨滴面板有水时在 LCD 上显示 \texttt{Raining}。
+  \item 障碍物报警：通过超声波传感器获取物体距离，通过蜂鸣器报警，并根据距离改变报警间隔。
+  \item 行驶里程计量：通过旋转编码器获取转动角度，在 LCD 上实时显示累计里程。
+  \item 姿态感知：通过陀螺仪加速度传感器获取姿态角度，在晃动或侧翻时利用蜂鸣器报警。
+\end{enumerate}
+
+本实验的具体目标是在树莓派上完成一个可编译、可运行、可演示的多传感器车辆监测程序，并通过 LCD、蜂鸣器、红色指示灯与终端输出共同反馈系统状态。
+
+\section{实验平台与工程概况}
+
+\subsection{软硬件环境}
+
+\begin{table}[H]
+\centering
+\caption{实验平台}
+\begin{tabular}{ll}
+\toprule
+类别 & 内容 \\
+\midrule
+控制器 & Raspberry Pi 4B \\
+开发语言 & C 语言 \\
+GPIO/I2C 库 & wiringPi、wiringPiI2C \\
+工程组织 & makefile，多源文件模块化编译 \\
+显示模块 & I2C LCD1602，地址 \texttt{0x27} \\
+模拟量采集 & PCF8591 AD/DA，地址 \texttt{0x48} \\
+姿态传感器 & MPU6050/GY-521，地址 \texttt{0x68} \\
+其它模块 & 雨滴传感器、HC-SR04、旋转编码器、蜂鸣器、红色指示灯 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{工程文件结构}
+
+工程位于 \texttt{automatic\_car/}，核心文件包括 \texttt{main.c}、\texttt{config.h}、\texttt{lcd1602.c}、\texttt{pcf8591.c}、\texttt{light.c}、\texttt{rain.c}、\texttt{ultrasonic.c}、\texttt{encoder.c}、\texttt{mpu6050.c}、\texttt{buzzer.c} 和 \texttt{display.c}。编译由 makefile 完成，目标程序名为 \texttt{automatic\_car}，链接参数为 \texttt{-lwiringPi -lm -lpthread}，其中 \texttt{-lm} 用于姿态角计算中的三角函数。
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.82\textwidth]{report_assets/hardware_overview.jpg}
+\caption{车辆传感器综合实验硬件连接整体图}
+\end{figure}
+
+\section{系统总体运行框架}
+
+系统采用“周期采集、状态汇总、统一执行”的结构。主程序首先注册 \texttt{SIGINT} 退出处理函数，然后调用 \texttt{wiringPiSetupGpio()} 以 BCM 编号方式初始化 GPIO，再依次初始化指示灯、蜂鸣器、雨滴输入、超声波、编码器、LCD1602、PCF8591 和 MPU6050。进入循环后，程序每 100 ms 读取一次各传感器数据，将结果写入 \texttt{CarStatus} 结构体，并根据状态控制红灯、蜂鸣器和 LCD。
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+  node distance=7mm,
+  box/.style={rectangle, rounded corners, draw, align=center, minimum width=3.4cm, minimum height=8mm},
+  io/.style={trapezium, trapezium left angle=70, trapezium right angle=110, draw, align=center, minimum width=3.4cm},
+  arr/.style={-{Latex}, thick}
+]
+\node[box] (init) {初始化 GPIO\\I2C 与各模块};
+\node[io, below=of init] (sense) {读取光照、雨滴、距离\\编码器、姿态};
+\node[box, below=of sense] (status) {更新 \texttt{CarStatus}\\计算报警等级};
+\node[box, below left=of status, xshift=-12mm] (led) {控制红灯\\自动大灯};
+\node[box, below=of status] (lcd) {刷新 LCD1602\\状态轮播/告警优先};
+\node[box, below right=of status, xshift=12mm] (buzz) {控制蜂鸣器\\慢响/快响};
+\node[io, below=of lcd] (print) {终端输出完整调试行};
+\draw[arr] (init) -- (sense);
+\draw[arr] (sense) -- (status);
+\draw[arr] (status) -- (led);
+\draw[arr] (status) -- (lcd);
+\draw[arr] (status) -- (buzz);
+\draw[arr] (led) |- (print);
+\draw[arr] (lcd) -- (print);
+\draw[arr] (buzz) |- (print);
+\draw[arr] (print.east) -- ++(1.1,0) |- (sense.east);
+\end{tikzpicture}
+\caption{主程序运行流程}
+\end{figure}
+
+\section{引脚与参数配置}
+
+\texttt{config.h} 集中定义了 GPIO、I2C 地址、阈值和系统状态结构体，使硬件连接与业务逻辑分离。实验使用 BCM 编号，主要接线如表 \ref{tab:pins} 所示。
+
+\begin{table}[H]
+\centering
+\caption{主要模块接线与地址}
+\label{tab:pins}
+\begin{tabular}{lll}
+\toprule
+模块 & 树莓派连接 & 程序定义 \\
+\midrule
+红色指示灯 & GPIO17 & \texttt{Light:ON} 时点亮 \\
+蜂鸣器 & GPIO27 & \texttt{BUZZER\_PIN 27} \\
+雨滴 DO & GPIO22 & \texttt{RAIN\_DIGITAL\_PIN 22} \\
+HC-SR04 Trig & GPIO23 & \texttt{ULTRASONIC\_TRIG\_PIN 23} \\
+HC-SR04 Echo & GPIO24 & \texttt{ULTRASONIC\_ECHO\_PIN 24} \\
+编码器 CLK/DT/SW & GPIO5/GPIO6/GPIO13 & \texttt{ENCODER\_*} \\
+LCD1602 & I2C SDA/SCL & \texttt{0x27} \\
+PCF8591 & I2C SDA/SCL & \texttt{0x48} \\
+MPU6050 & I2C SDA/SCL & \texttt{0x68} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+程序还预留了电平有效性和阈值宏。例如蜂鸣器设置为 \texttt{BUZZER\_ACTIVE\_HIGH 0}，雨滴检测设置为 \texttt{RAIN\_ACTIVE\_LOW 1}，光照阈值为 \texttt{LIGHT\_DARK\_THRESHOLD 120}。实际演示中，LCD 的 \texttt{Light:ON} 对应红灯亮，\texttt{Light:OFF} 对应红灯未亮。阈值和有效电平集中放在配置文件中，便于后续按模块特性调参。
+
+\section{关键模块设计与实现}
+
+\subsection{自动大灯}
+
+自动大灯使用 PCF8591 读取板载光敏电阻。代码中 \texttt{pcf8591\_read\_channel()} 先写入控制字 \texttt{0x40 | channel}，再丢弃第一次 dummy read，最后读取 0 到 255 的 ADC 值。光敏通道配置为 AIN1，即 \texttt{LIGHT\_ADC\_CHANNEL 1}。
+
+\begin{lstlisting}[caption={光敏判断逻辑摘录}]
+int light_is_dark(int value)
+{
+    if (value < 0) {
+        return 0;
+    }
+    if (LIGHT_DARK_WHEN_HIGH) {
+        return value > LIGHT_DARK_THRESHOLD;
+    } else {
+        return value < LIGHT_DARK_THRESHOLD;
+    }
+}
+\end{lstlisting}
+
+自动大灯的实际演示通过 LCD 状态和红色指示灯共同体现。系统以 120 为分界判断光敏状态；当 LCD 显示 \texttt{Light:ON} 时，红色指示灯亮起；当 LCD 显示 \texttt{Light:OFF} 时，红色指示灯未亮。照片中 LCD 显示了 \texttt{Light:OFF L:109}、\texttt{Light:ON L:137} 等采样状态，同时实物照片展示了红灯亮起的状态。照片右侧其它模块发出的绿色光不作为自动大灯功能证据。
+
+\begin{figure}[H]
+\centering
+\begin{subfigure}{0.48\textwidth}
+\centering
+\includegraphics[width=\textwidth]{report_assets/light_rain_no.jpg}
+\caption{\texttt{Light:OFF} 的 LCD 状态}
+\end{subfigure}
+\hfill
+\begin{subfigure}{0.48\textwidth}
+\centering
+\includegraphics[width=\textwidth]{report_assets/light_rain_yes.jpg}
+\caption{\texttt{Light:ON} 的 LCD 状态}
+\end{subfigure}
+\caption{LCD 显示光照与雨滴状态}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.72\textwidth]{report_assets/red_led_demo_full.jpg}
+\caption{\texttt{Light:ON} 状态下红色指示灯亮起的实物照片}
+\end{figure}
+
+\subsection{自动雨刷状态检测}
+
+雨滴传感器使用数字输出 DO 接入 GPIO22。模块初始化时将该引脚设为输入并启用上拉。由于常见雨滴模块可能低电平有效，程序通过 \texttt{RAIN\_ACTIVE\_LOW} 宏统一处理极性。
+
+\begin{lstlisting}[caption={雨滴检测逻辑摘录}]
+void rain_init(void)
+{
+    pinMode(RAIN_DIGITAL_PIN, INPUT);
+    pullUpDnControl(RAIN_DIGITAL_PIN, PUD_UP);
+}
+
+int rain_is_detected(void)
+{
+    int val = rain_raw_value();
+    return RAIN_ACTIVE_LOW ? (val == LOW) : (val == HIGH);
+}
+\end{lstlisting}
+
+本实验没有实际驱动雨刷电机，而是按指导书要求用 LCD 显示雨滴状态：无雨显示 \texttt{Rain:NO}，有雨显示 \texttt{Rain:YES} 或 \texttt{Raining} 语义状态。
+
+\subsection{障碍物测距与蜂鸣器报警}
+
+HC-SR04 模块由 GPIO23 输出 Trig 信号、GPIO24 读取 Echo 信号。程序先发送 10 us 高电平触发测距，再使用 \texttt{micros()} 统计 Echo 高电平持续时间，并按式 \ref{eq:distance} 计算距离。
+
+\begin{equation}
+d=\frac{t \times 0.0343}{2}
+\label{eq:distance}
+\end{equation}
+
+其中 $d$ 为距离，单位 cm；$t$ 为 Echo 高电平持续时间，单位 $\mu s$。代码设置了 30000 us 超时保护，避免传感器异常时主循环被阻塞。报警等级由距离和姿态共同决定：距离大于 30 cm 时关闭蜂鸣器；10 cm 到 30 cm 之间为慢速间歇报警；小于等于 10 cm 或检测到倾斜时为快速报警。
+
+\begin{lstlisting}[caption={主循环报警等级计算摘录}]
+status.alarm_level = 0;
+if (status.distance_cm > 0 && status.distance_cm <= DIST_WARN_CM) {
+    status.alarm_level = 1;
+}
+if (status.distance_cm > 0 && status.distance_cm <= DIST_DANGER_CM) {
+    status.alarm_level = 2;
+}
+if (status.tilt_detected) {
+    status.alarm_level = 2;
+}
+\end{lstlisting}
+
+蜂鸣器模块采用非阻塞设计，\texttt{buzzer\_task()} 根据 \texttt{millis()} 判断是否到达翻转时间，慢速报警间隔为 500 ms，快速报警间隔为 100 ms。这样不会因为蜂鸣器延时影响其它传感器采样。
+
+\begin{figure}[H]
+\centering
+\begin{subfigure}{0.32\textwidth}
+\centering
+\includegraphics[width=\textwidth]{report_assets/distance_safe.jpg}
+\caption{安全距离}
+\end{subfigure}
+\hfill
+\begin{subfigure}{0.32\textwidth}
+\centering
+\includegraphics[width=\textwidth]{report_assets/distance_warn.jpg}
+\caption{30 cm 内慢速报警}
+\end{subfigure}
+\hfill
+\begin{subfigure}{0.32\textwidth}
+\centering
+\includegraphics[width=\textwidth]{report_assets/obstacle_warning.jpg}
+\caption{危险距离告警页面}
+\end{subfigure}
+\caption{障碍物测距与报警显示}
+\end{figure}
+
+\subsection{旋转编码器与里程计量}
+
+旋转编码器使用 CLK、DT 两路正交脉冲判断方向，SW 按键用于清零。程序对 CLK 注册 \texttt{wiringPiISR()} 中断，触发方式为 \texttt{INT\_EDGE\_BOTH}，即上升沿和下降沿都会进入中断服务函数。中断函数中读取 CLK 和 DT 的当前状态：若二者电平相等，则 \texttt{encoder\_count++}；若二者电平不同，则 \texttt{encoder\_count--}。这种写法利用了正交编码器两路信号相位先后不同的特点，可以在旋转方向改变时自动改变计数符号。
+
+SW 按键也通过 \texttt{wiringPiISR()} 注册双边沿中断，但程序并不是任意边沿都清零，而是在中断中再次读取按键电平，并结合 \texttt{ENCODER\_SW\_ACTIVE\_LOW} 判断是否处于真正的按下状态。为避免机械按键抖动造成连续清零，\texttt{encoder\_sw\_isr()} 中用 \texttt{millis()} 记录上次响应时间，200 ms 内的重复触发会被忽略。这样，旋转动作负责累计里程，按下 SW 则将 \texttt{encoder\_count} 置零，从而实现里程归零。
+
+\begin{lstlisting}[caption={旋转编码器计数与按键清零逻辑摘录}]
+static void encoder_isr(void)
+{
+    int clk = digitalRead(ENCODER_CLK_PIN);
+    int dt = digitalRead(ENCODER_DT_PIN);
+    if (clk == dt) {
+        encoder_count++;
+    } else {
+        encoder_count--;
+    }
+}
+
+static void encoder_sw_isr(void)
+{
+    static unsigned long last_sw_time = 0;
+    unsigned long now = millis();
+    if (now - last_sw_time < 200)
+        return;
+    last_sw_time = now;
+
+#if ENCODER_SW_ACTIVE_LOW
+    if (digitalRead(ENCODER_SW_PIN) == LOW) {
+        encoder_count = 0;
+    }
+#else
+    if (digitalRead(ENCODER_SW_PIN) == HIGH) {
+        encoder_count = 0;
+    }
+#endif
+}
+\end{lstlisting}
+
+里程计算使用轮径和每圈脉冲数：
+
+\begin{equation}
+s=\frac{N}{P}\times \pi D
+\end{equation}
+
+其中 $N$ 为编码器累计 tick，$P=20$ 为每圈脉冲数，$D=6.5$ cm 为轮径。程序在 \texttt{encoder\_get\_mileage\_cm()} 中将累计 tick 除以每圈脉冲数，再乘以轮周长 $\pi D$，得到以 cm 为单位的累计里程。LCD 的里程页面显示 \texttt{Mile} 与 \texttt{Pose}，用于同时观察行驶里程和姿态是否正常。
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.58\textwidth]{report_assets/mileage_nonzero.jpg}
+\caption{LCD 里程与姿态页面}
+\end{figure}
+
+\subsection{MPU6050 姿态感知}
+
+MPU6050 通过 I2C 地址 \texttt{0x68} 通信。初始化时向 \texttt{PWR\_MGMT\_1} 写入 \texttt{0x00} 解除睡眠。程序读取从 \texttt{0x3B} 开始的加速度与陀螺仪寄存器，并将高低字节合成为 16 位有符号数。姿态角按式 \ref{eq:roll} 和式 \ref{eq:pitch} 计算。
+
+\begin{align}
+\text{roll} &= \arctan2(a_y,a_z)\times\frac{180}{\pi} \label{eq:roll}\\
+\text{pitch} &= \arctan2(-a_x,\sqrt{a_y^2+a_z^2})\times\frac{180}{\pi} \label{eq:pitch}
+\end{align}
+
+当 \texttt{roll} 或 \texttt{pitch} 的绝对值大于等于 \texttt{TILT\_THRESHOLD\_DEG}，即 35 度时，系统判定车辆倾斜。此时 LCD 优先显示 \texttt{WARNING! Car Tilted}，蜂鸣器进入快速报警。
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.62\textwidth]{report_assets/tilt_warning.jpg}
+\caption{姿态倾斜报警显示}
+\end{figure}
+
+\subsection{LCD 状态轮播与优先级}
+
+LCD1602 只有两行，每行 16 字符。程序通过 \texttt{display\_update()} 实现页面轮播，每 2000 ms 切换一次页面：第一页显示光照和雨滴，第二页显示距离和蜂鸣器状态，第三页显示里程和姿态。若距离进入危险阈值或车辆倾斜，则暂停普通轮播，优先显示告警页面。
+
+\begin{table}[H]
+\centering
+\caption{LCD 页面设计}
+\begin{tabular}{lll}
+\toprule
+页面 & 第一行 & 第二行 \\
+\midrule
+光照/雨滴 & \texttt{Light:ON/OFF L:xxx} & \texttt{Rain:YES/NO}，并同步红灯状态 \\
+距离/蜂鸣器 & \texttt{Dist: xx.xcm} & \texttt{Buzz:OFF/SLOW/FAST} \\
+里程/姿态 & \texttt{Mile: xx.xcm} & \texttt{Pose:Normal/Tilted} \\
+障碍物告警 & \texttt{WARNING!} & \texttt{Obstacle Near} \\
+姿态告警 & \texttt{WARNING!} & \texttt{Car Tilted} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{主程序集成}
+
+主程序使用 \texttt{CarStatus} 保存全部传感器和执行状态。每次循环依次完成光照读取、雨滴读取、距离读取、编码器读取、姿态角读取、报警等级计算、蜂鸣器任务执行、LCD 刷新和终端打印。退出时调用 \texttt{cleanup()} 关闭蜂鸣器、关闭指示灯并清空 LCD，避免程序停止后执行器保持在异常状态。
+
+\begin{lstlisting}[caption={主循环状态输出格式}]
+printf("Light=%d LED=%s Rain=%s Dist=%.1fcm Count=%ld "
+       "Mile=%.1fcm Roll=%.1f Pitch=%.1f Alarm=%d\n",
+       status.light_value,
+       status.light_on ? "ON" : "OFF",
+       status.rain_detected ? "YES" : "NO",
+       status.distance_cm,
+       status.encoder_ticks,
+       status.mileage_cm,
+       status.roll_deg,
+       status.pitch_deg,
+       status.alarm_level);
+\end{lstlisting}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.82\textwidth]{report_assets/terminal_output.jpg}
+\caption{终端连续输出光照、雨滴、距离、里程、姿态与报警等级}
+\end{figure}
+
+\section{实验验证}
+
+\subsection{编译与运行验证}
+
+工程使用 makefile 统一编译，关键配置如下：目标文件为 \texttt{automatic\_car}，源文件包含主程序与各传感器模块，链接库为 \texttt{-lwiringPi -lm -lpthread}。实验运行环境应在树莓派上执行：
+
+\begin{lstlisting}[language=bash,caption={编译与运行命令}]
+make
+./automatic_car
+\end{lstlisting}
+
+\subsection{功能现象}
+
+\begin{table}[H]
+\centering
+\caption{功能验证记录}
+\begin{tabular}{p{3.2cm}p{5.1cm}p{6.2cm}}
+\toprule
+功能 & 验证方法 & 观察结果 \\
+\midrule
+自动大灯 & 改变 PCF8591 光敏电阻受光情况 & LCD 显示 \texttt{Light:OFF L:109} 与 \texttt{Light:ON L:137} 等状态；其中 \texttt{Light:ON} 表示红灯亮，照片给出了红灯亮起的实物证据 \\
+自动雨刷 & 触发雨滴传感器面板 & LCD 出现 \texttt{Rain:NO} 与 \texttt{Rain:YES} 两类状态 \\
+障碍物报警 & 手或物体靠近 HC-SR04 & LCD 显示距离值，约 26.0 cm 时蜂鸣器状态为 \texttt{SLOW}，危险距离时显示 \texttt{Obstacle Near} \\
+里程计量 & 旋转编码器 & LCD 里程页面显示 \texttt{Mile} 字段，用于显示由编码器 tick 换算得到的累计里程；按下 SW 可将计数清零 \\
+姿态感知 & 倾斜 MPU6050 模块 & LCD 显示 \texttt{WARNING! Car Tilted}，报警等级进入快速报警逻辑 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{问题分析与改进方向}
+
+\begin{enumerate}
+  \item 光敏、雨滴和蜂鸣器模块的有效电平可能因模块型号不同而反相。本工程已通过如下极性宏预留调参入口：
+\begin{lstlisting}
+#define LED_ACTIVE_HIGH      1
+#define BUZZER_ACTIVE_HIGH   0
+#define RAIN_ACTIVE_LOW      1
+#define LIGHT_DARK_WHEN_HIGH 1
+\end{lstlisting}
+  \item HC-SR04 的 Echo 在部分硬件连接中可能为 5 V，高于树莓派 GPIO 3.3 V 输入电平要求。若实际接线未使用分压或电平转换，长期使用存在风险，建议加入分压电阻或电平转换模块。
+  \item 当前姿态判断主要依据加速度计算 roll/pitch，容易受到瞬时振动影响。后续可加入滑动平均、互补滤波或卡尔曼滤波，提高晃动环境下的稳定性。
+  \item LCD1602 显示空间有限，轮播页面适合演示，但不便于同时查看全部状态。后续可增加按键切换页面，或在终端/网页界面显示完整状态。
+\end{enumerate}
+
+\section{实验结论}
+
+本实验完成了树莓派车辆传感器综合系统。工程按照多模块 C 程序组织方式，将光敏检测、雨滴检测、超声波测距、编码器里程计量、MPU6050 姿态计算、蜂鸣器报警、红灯控制和 LCD 显示解耦实现，并通过主循环统一调度。实验照片表明系统能够显示光照与雨滴状态，并通过 \texttt{Light:ON} 对应红灯亮的方式给出灯光提示；系统还能够根据距离进入不同报警状态、显示里程与姿态状态，并在检测到障碍物过近或车辆倾斜时给出告警页面。通过本实验，掌握了树莓派 GPIO/I2C 外设接入、多传感器状态融合、非阻塞报警控制、LCD 页面轮播和 makefile 多文件工程管理方法。
+
+\end{document}

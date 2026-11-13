@@ -1,0 +1,508 @@
+\documentclass[UTF8,a4paper,12pt]{ctexart}
+
+\usepackage{geometry}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage{array}
+\usepackage{float}
+\usepackage{hyperref}
+
+\geometry{left=2.7cm,right=2.7cm,top=2.5cm,bottom=2.5cm}
+\hypersetup{colorlinks=true,linkcolor=black,urlcolor=blue}
+
+\newcommand{\port}[1]{\texttt{#1}}
+\newcommand{\key}[1]{\textbf{#1}}
+
+\title{基于 FPGA 的动漫音乐播放器与电子时钟闹铃系统\\使用说明书}
+\author{姓名：\underline{\hspace{2.4cm}}\quad 学号：\underline{\hspace{3.2cm}}\quad 班级：\underline{\hspace{2.4cm}}}
+\date{2026年5月17日}
+
+\begin{document}
+\maketitle
+
+\section{产品概述}
+
+本系统是一个运行在 Xilinx Zynq-7000 FPGA 开发板及 EDA 拓展板上的综合数字系统，主要包含两类功能：
+
+\begin{enumerate}
+  \item 音乐播放器功能：通过无源蜂鸣器播放内置动漫旋律，支持播放/暂停、切换歌曲、调节播放速度和调节音量；
+  \item 电子时钟闹铃功能：通过 8 位七段数码管显示时间，支持时间设置、计时暂停/继续、闹铃时间设置、闹铃歌曲选择和闹铃响铃停止。
+\end{enumerate}
+
+本说明书面向第一次使用该工程的操作者，重点说明开发板下载后的上板操作方式、LED 与数码管含义、典型使用案例和常见问题。
+
+\section{使用前准备}
+
+\subsection{硬件准备}
+
+使用本系统前需要准备以下硬件：
+
+\begin{itemize}
+  \item ACZ702 或兼容的 Zynq-7000 FPGA 开发板；
+  \item EDA 拓展板；
+  \item JTAG 下载线或板载下载接口；
+  \item 蜂鸣器、LED、数码管、按键和拨码开关所在的开发板外设；
+  \item 可运行 Vivado 的计算机。
+\end{itemize}
+
+\subsection{软件准备}
+
+工程使用 Vivado 2018.3 创建和实现。使用时需确认工程顶层模块为：
+
+\[
+\texttt{anime\_music\_player\_top}
+\]
+
+约束文件为：
+
+\[
+\texttt{anime\_music\_player.xdc}
+\]
+
+下载到开发板的比特流文件为：
+
+\[
+\texttt{anime\_music\_player\_top.bit}
+\]
+
+\section{系统接口说明}
+
+\subsection{按键说明}
+
+系统使用 4 个独立按键 S0--S3。不同模式下，按键功能不同。
+
+\begin{table}[H]
+  \centering
+  \caption{按键功能说明}
+  \begin{tabular}{lll}
+    \toprule
+    按键 & 音乐模式功能 & 时钟模式功能 \\
+    \midrule
+    S0 / \port{key0} & 播放/暂停 & 选择当前设置字段 \\
+    S1 / \port{key1} & 切换下一首歌曲 & 当前字段加一 \\
+    S2 / \port{key2} & 提高播放速度 & 当前字段减一 \\
+    S3 / \port{key3} & 降低播放速度 & 暂停/继续计时；闹铃响时停止闹铃 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+按键内部已进行约 20 ms 消抖处理。实际操作时，按下一次即可，不需要长按。若连续快速按键无反应，应适当放慢按键频率。
+
+\subsection{拨码开关说明}
+
+\begin{table}[H]
+  \centering
+  \caption{拨码开关功能说明}
+  \begin{tabular}{lll}
+    \toprule
+    信号 & 含义 & 说明 \\
+    \midrule
+    \port{sw\_mode} & 模式选择 & 0：音乐模式；1：时钟模式 \\
+    \port{sw\_vol[1:0]} & 音量选择 & 00 最小，01 较小，10 较大，11 最大 \\
+    \port{sw\_alarm\_set} & 闹铃设置模式 & 0：设置当前时间；1：设置闹铃时间 \\
+    \port{sw\_alarm\_en} & 闹铃使能 & 0：关闭闹铃；1：开启闹铃 \\
+    \port{sw\_alarm\_song[1:0]} & 闹铃歌曲选择 & 00：第 1 首；01：第 2 首；10：第 3 首；11：第 1 首 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{输出说明}
+
+\begin{table}[H]
+  \centering
+  \caption{输出设备说明}
+  \begin{tabular}{lll}
+    \toprule
+    输出设备 & 端口 & 功能 \\
+    \midrule
+    蜂鸣器 & \port{beep} & 播放音乐或闹铃歌曲 \\
+    LED & \port{led[7:0]} & 显示当前状态 \\
+    八位数码管 & \port{seg\_dio}, \port{seg\_sclk}, \port{seg\_rclk} & 显示音乐状态、当前时间或闹铃设置 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\section{显示含义}
+
+\subsection{音乐模式显示}
+
+当 \port{sw\_mode=0} 时，系统进入音乐模式。数码管从高位到低位显示：
+
+\[
+\text{歌曲编号}\quad \text{空白}\quad \text{播放状态}\quad \text{空白}\quad \text{速度}\quad \text{音量}\quad \text{音区}\quad \text{音名}
+\]
+
+可理解为：
+
+\[
+S\quad -\quad P\quad -\quad V_s\quad V_o\quad O\quad N
+\]
+
+其中：
+
+\begin{itemize}
+  \item 歌曲编号：1、2、3，分别对应三段内置旋律；
+  \item 播放状态：1 表示播放，0 表示暂停；
+  \item 速度：0 慢速，1 正常，2 快速；
+  \item 音量：0--3，对应四档音量；
+  \item 音区：0 低音，1 中音，2 高音；
+  \item 音名：1--7，对应 Do、Re、Mi、Fa、Sol、La、Si；0 表示休止。
+\end{itemize}
+
+音乐模式 LED 含义如下：
+
+\begin{table}[H]
+  \centering
+  \caption{音乐模式 LED 含义}
+  \begin{tabular}{lll}
+    \toprule
+    LED 位 & 含义 & 说明 \\
+    \midrule
+    \port{led[7:5]} & 节奏灯 & 每切换一个音符循环移位 \\
+    \port{led[4:3]} & 速度档位 & 与 \port{speed\_level} 对应 \\
+    \port{led[2:1]} & 歌曲编号 & 与 \port{song\_id} 对应 \\
+    \port{led[0]} & 播放状态 & 1 播放，0 暂停 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{时钟模式显示}
+
+当 \port{sw\_mode=1} 且 \port{sw\_alarm\_set=0} 时，系统进入当前时间显示/设置状态。数码管显示格式为：
+
+\[
+HH-MM-SS
+\]
+
+例如，若数码管显示：
+
+\[
+12-34-56
+\]
+
+表示当前时间为 12 时 34 分 56 秒。
+
+时钟模式 LED 含义如下：
+
+\begin{table}[H]
+  \centering
+  \caption{时钟模式 LED 含义}
+  \begin{tabular}{lll}
+    \toprule
+    LED 位 & 含义 & 说明 \\
+    \midrule
+    \port{led[7]} & 1 Hz 闪烁灯 & 每秒翻转一次 \\
+    \port{led[6]} & 闹铃响铃状态 & 1 表示闹铃正在响 \\
+    \port{led[5:3]} & 保留 & 固定为 0 \\
+    \port{led[2:1]} & 当前设置字段 & 0：小时；1：分钟；2：秒 \\
+    \port{led[0]} & 计时运行状态 & 1 运行，0 暂停 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{闹铃设置显示}
+
+当 \port{sw\_mode=1} 且 \port{sw\_alarm\_set=1} 时，系统进入闹铃设置状态。数码管显示格式为：
+
+\[
+A\#-HH-MM
+\]
+
+其中：
+
+\begin{itemize}
+  \item A 表示 Alarm，即闹铃；
+  \item \# 表示闹铃歌曲编号；
+  \item HH 表示闹铃小时；
+  \item MM 表示闹铃分钟。
+\end{itemize}
+
+例如，若数码管显示：
+
+\[
+A2-07-30
+\]
+
+表示闹铃歌曲为第 2 首，闹铃时间为 07:30。
+
+\section{基本操作流程}
+
+\subsection{上电和下载}
+
+\begin{enumerate}
+  \item 连接开发板电源和下载线；
+  \item 打开 Vivado 工程；
+  \item 确认顶层模块为 \port{anime\_music\_player\_top}；
+  \item 运行综合、实现并生成 bitstream；
+  \item 将 \port{anime\_music\_player\_top.bit} 下载到开发板；
+  \item 下载完成后，按复位键，使系统进入初始状态。
+\end{enumerate}
+
+\subsection{音乐模式基本操作}
+
+\begin{enumerate}
+  \item 将 \port{sw\_mode} 置 0，进入音乐模式；
+  \item 设置 \port{sw\_vol[1:0]} 选择音量；
+  \item 按 S0 开始播放；
+  \item 再按 S0 暂停播放；
+  \item 按 S1 切换下一首歌曲；
+  \item 按 S2 提高播放速度；
+  \item 按 S3 降低播放速度。
+\end{enumerate}
+
+\subsection{时钟模式基本操作}
+
+\begin{enumerate}
+  \item 将 \port{sw\_mode} 置 1，进入时钟模式；
+  \item 将 \port{sw\_alarm\_set} 置 0，进入当前时间设置/显示；
+  \item 按 S0 在小时、分钟、秒之间切换；
+  \item 按 S1 使当前字段加一；
+  \item 按 S2 使当前字段减一；
+  \item 按 S3 暂停或继续计时。
+\end{enumerate}
+
+\subsection{闹铃基本操作}
+
+\begin{enumerate}
+  \item 将 \port{sw\_mode} 置 1，进入时钟模式；
+  \item 将 \port{sw\_alarm\_set} 置 1，进入闹铃设置；
+  \item 使用 \port{sw\_alarm\_song[1:0]} 选择闹铃歌曲；
+  \item 按 S0 在闹铃小时和闹铃分钟之间切换；
+  \item 按 S1 或 S2 调整闹铃时间；
+  \item 将 \port{sw\_alarm\_en} 置 1，开启闹铃；
+  \item 将 \port{sw\_alarm\_set} 置 0，回到当前时间显示；
+  \item 当当前时间匹配闹铃时间且秒为 00 时，闹铃自动响起；
+  \item 闹铃响起后，按 S3 可提前停止；若不操作，系统约 10 秒后自动停止。
+\end{enumerate}
+
+\section{操作案例}
+
+\subsection{案例一：播放第 1 首歌曲并调节音量}
+
+目标：进入音乐模式，播放第 1 首歌曲，并把音量调到较大。
+
+\begin{table}[H]
+  \centering
+  \caption{案例一操作步骤}
+  \begin{tabular}{cll}
+    \toprule
+    步骤 & 操作 & 预期现象 \\
+    \midrule
+    1 & 下载 bitstream 并复位系统 & LED 和数码管进入初始状态 \\
+    2 & 将 \port{sw\_mode} 置 0 & 进入音乐模式 \\
+    3 & 将 \port{sw\_vol[1:0]} 置为 10 & 选择较大音量 \\
+    4 & 按 S0 一次 & 蜂鸣器开始播放，\port{led[0]} 亮 \\
+    5 & 观察数码管 & 歌曲编号显示为 1，播放状态显示为 1 \\
+    6 & 再按 S0 一次 & 音乐暂停，\port{led[0]} 灭 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+说明：如果蜂鸣器没有声音，应先检查 \port{sw\_mode} 是否为 0、\port{sw\_vol} 是否过小，以及 S0 是否已正确按下。
+
+\subsection{案例二：切换歌曲并加快播放速度}
+
+目标：从第 1 首切换到第 2 首，并提高播放速度。
+
+\begin{enumerate}
+  \item 先按案例一进入音乐播放状态；
+  \item 按 S1 一次，歌曲编号从 1 切换到 2；
+  \item 观察数码管高位的歌曲编号，应显示 2；
+  \item 按 S2 一次，速度档位从 1 变为 2；
+  \item 观察音乐节奏，应比正常速度更快；
+  \item 观察 \port{led[4:3]}，其状态应随速度档位改变。
+\end{enumerate}
+
+注意：速度档位最大为 2。当速度已经为 2 时，继续按 S2 不会再增大。
+
+\subsection{案例三：设置当前时间为 12:34:50}
+
+目标：在时钟模式下，把当前时间设置为 12:34:50。
+
+\begin{enumerate}
+  \item 将 \port{sw\_mode} 置 1，进入时钟模式；
+  \item 将 \port{sw\_alarm\_set} 置 0，进入当前时间设置状态；
+  \item 按 S0 选择小时字段，观察 \port{led[2:1]} 指示当前字段；
+  \item 使用 S1 或 S2 将小时调到 12；
+  \item 按 S0 切换到分钟字段；
+  \item 使用 S1 或 S2 将分钟调到 34；
+  \item 按 S0 切换到秒字段；
+  \item 使用 S1 或 S2 将秒调到 50；
+  \item 确认数码管显示接近 \port{12-34-50}。
+\end{enumerate}
+
+说明：系统设置过程中计时逻辑仍可能运行，因此操作较慢时秒数会继续变化。这是正常现象。若需要固定时间后再观察，可以按 S3 暂停计时，设置完成后再按 S3 继续运行。
+
+\subsection{案例四：设置 00:01 闹铃并选择第 2 首歌曲}
+
+目标：设置闹铃在 00:01 触发，闹铃歌曲为第 2 首。
+
+\begin{enumerate}
+  \item 将 \port{sw\_mode} 置 1；
+  \item 将 \port{sw\_alarm\_set} 置 1，进入闹铃设置模式；
+  \item 将 \port{sw\_alarm\_song[1:0]} 置为 01，选择第 2 首歌曲；
+  \item 按 S0 选择闹铃小时字段；
+  \item 使用 S1 或 S2 将闹铃小时设置为 00；
+  \item 按 S0 选择闹铃分钟字段；
+  \item 使用 S1 或 S2 将闹铃分钟设置为 01；
+  \item 将 \port{sw\_alarm\_en} 置 1，开启闹铃；
+  \item 将 \port{sw\_alarm\_set} 置 0，回到当前时间显示；
+  \item 将当前时间设置为 00:00:50 左右，等待时间走到 00:01:00；
+  \item 当时间到达 00:01:00 时，蜂鸣器自动播放第 2 首歌曲，\port{led[6]} 亮；
+  \item 按 S3 可停止闹铃。
+\end{enumerate}
+
+预期现象：闹铃触发后，无论普通音乐模式下是否播放，系统都会在时钟模式中强制播放闹铃歌曲。约 10 秒后，若不按 S3，闹铃会自动停止。
+
+\subsection{案例五：暂停电子时钟再恢复计时}
+
+目标：验证 S3 在时钟模式下的暂停/继续功能。
+
+\begin{enumerate}
+  \item 将 \port{sw\_mode} 置 1；
+  \item 确认 \port{sw\_alarm\_set} 为 0；
+  \item 观察数码管秒数正在变化；
+  \item 按 S3 一次，\port{led[0]} 变为 0，秒数停止变化；
+  \item 再按 S3 一次，\port{led[0]} 变为 1，秒数继续变化。
+\end{enumerate}
+
+注意：如果闹铃正在响，S3 的优先功能是停止闹铃，而不是暂停计时。
+
+\subsection{案例六：课堂演示快速检查}
+
+目标：在较短时间内展示系统主要功能。
+
+\begin{table}[H]
+  \centering
+  \caption{课堂演示建议流程}
+  \begin{tabular}{cll}
+    \toprule
+    顺序 & 操作 & 展示重点 \\
+    \midrule
+    1 & 音乐模式下按 S0 & 蜂鸣器播放，LED0 显示播放状态 \\
+    2 & 按 S1 & 切歌功能 \\
+    3 & 按 S2/S3 & 播放速度变化 \\
+    4 & 调节 \port{sw\_vol} & 音量变化 \\
+    5 & 切到时钟模式 & 数码管显示 HH-MM-SS \\
+    6 & 按 S0/S1/S2 & 时间字段选择与修改 \\
+    7 & 设置短时间闹铃 & 闹铃触发并播放歌曲 \\
+    8 & 闹铃响起时按 S3 & 手动停止闹铃 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\section{常见问题与处理}
+
+\subsection{蜂鸣器没有声音}
+
+可能原因和处理方法如下：
+
+\begin{table}[H]
+  \centering
+  \caption{蜂鸣器无声排查}
+  \begin{tabular}{ll}
+    \toprule
+    可能原因 & 处理方法 \\
+    \midrule
+    当前处于时钟模式且闹铃未触发 & 将 \port{sw\_mode} 置 0，进入音乐模式 \\
+    未按下播放键 & 按 S0 开始播放 \\
+    音量过小 & 提高 \port{sw\_vol[1:0]} 档位 \\
+    当前音符为休止符 & 等待下一音符或切换歌曲 \\
+    bitstream 未正确下载 & 重新生成并下载 \port{anime\_music\_player\_top.bit} \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{按键按下没有反应}
+
+可能原因：
+
+\begin{itemize}
+  \item 按键按得过快，消抖逻辑尚未产生新的脉冲；
+  \item 当前模式下该按键对应的功能不同；
+  \item 开发板复位后系统状态还未稳定；
+  \item 约束文件未正确绑定按键引脚。
+\end{itemize}
+
+处理建议：先确认 \port{sw\_mode}，再慢速按键，每次按下后等待约 0.5 秒观察 LED 或数码管变化。
+
+\subsection{数码管显示不符合预期}
+
+可按以下顺序检查：
+
+\begin{enumerate}
+  \item 确认当前模式：\port{sw\_mode=0} 显示音乐状态，\port{sw\_mode=1} 显示时钟或闹铃；
+  \item 若在时钟模式，确认 \port{sw\_alarm\_set} 是 0 还是 1；
+  \item 检查 \port{seg\_dio}、\port{seg\_sclk}、\port{seg\_rclk} 引脚约束是否正确；
+  \item 若显示闪烁过慢或不稳定，检查 \port{hex8\_scan} 的扫描计数是否被修改。
+\end{enumerate}
+
+\subsection{闹铃没有触发}
+
+闹铃触发必须同时满足以下条件：
+
+\begin{itemize}
+  \item 系统处于时钟模式，即 \port{sw\_mode=1}；
+  \item 闹铃使能打开，即 \port{sw\_alarm\_en=1}；
+  \item 当前不处于闹铃设置模式，即 \port{sw\_alarm\_set=0}；
+  \item 当前小时和分钟等于闹铃小时和分钟；
+  \item 当前秒数为 00。
+\end{itemize}
+
+若想快速验证闹铃，建议把闹铃设置为当前时间的下一分钟，并把当前秒数设置在 45--55 秒之间等待触发。
+
+\section{维护与扩展建议}
+
+本系统可以继续扩展以下功能：
+
+\begin{enumerate}
+  \item 增加更多歌曲：扩展 ROM 初始化文件，并在 \port{note\_scheduler} 中增加歌曲地址范围；
+  \item 增加更多音区：扩展 \port{pitch\_decoder} 的音高查表；
+  \item 增加闪烁提示：在设置当前字段时让对应数码管闪烁；
+  \item 增加串口校时：通过 UART 从电脑发送当前时间；
+  \item 增加掉电保存：使用外部 RTC 或非易失存储保存时间和闹铃设置；
+  \item 增加显示说明：用更多 LED 或屏幕显示当前模式。
+\end{enumerate}
+
+\section{安全与注意事项}
+
+\begin{itemize}
+  \item 下载 bitstream 前应确认开发板供电稳定；
+  \item 不要在不清楚外设电平标准时随意修改 \port{IOSTANDARD}；
+  \item 若更换开发板，需要重新核对所有引脚约束；
+  \item 蜂鸣器音量较大时，长时间播放可能影响周围环境，课堂演示时建议使用中等音量；
+  \item 若修改时钟频率，必须同步修改 \port{clock\_core} 中的 \port{CLK\_FREQ} 和 XDC 中的时钟周期约束。
+\end{itemize}
+
+\section{附录：主要引脚分配}
+
+\begin{table}[H]
+  \centering
+  \caption{主要引脚分配}
+  \begin{tabular}{lll}
+    \toprule
+    端口 & 引脚 & 功能 \\
+    \midrule
+    \port{clk} & U18 & 50 MHz 系统时钟 \\
+    \port{reset\_n} & H18 & 低有效复位 \\
+    \port{beep} & G15 & 蜂鸣器输出 \\
+    \port{key0} & H20 & S0 \\
+    \port{key1} & H16 & S1 \\
+    \port{key2} & J20 & S2 \\
+    \port{key3} & J19 & S3 \\
+    \port{seg\_dio} & D20 & 74HC595 串行数据 \\
+    \port{seg\_sclk} & E19 & 74HC595 移位时钟 \\
+    \port{seg\_rclk} & F17 & 74HC595 锁存时钟 \\
+    \port{sw\_mode} & E17 & 模式选择 \\
+    \port{sw\_vol[0]} & K14 & 音量位 0 \\
+    \port{sw\_vol[1]} & L15 & 音量位 1 \\
+    \port{sw\_alarm\_song[0]} & G14 & 闹铃歌曲位 0 \\
+    \port{sw\_alarm\_song[1]} & J14 & 闹铃歌曲位 1 \\
+    \port{sw\_alarm\_en} & H15 & 闹铃使能 \\
+    \port{sw\_alarm\_set} & D18 & 闹铃设置模式 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\end{document}

@@ -1,0 +1,76 @@
+# ================= 通用 =================
+Thumbs.db
+desktop.ini
+.DS_Store
+*.tmp
+~$*
+
+# ================= Xilinx Vivado 2018.3 =================
+# 构建 / 缓存目录：由 .xpr + .srcs 重新生成，体积大且频繁变动
+**/*.cache/
+**/*.runs/
+**/*.sim/
+**/*.hw/
+**/*.gen/
+**/*.ip_user_files/
+**/*.ioplanning/
+**/.Xil/
+# 运行日志与临时状态
+*.jou
+*.log
+*.str
+*.vdi
+*.wdb
+*.wcfg
+*.pb
+*.rpx
+*.backup.jou
+*.backup.vdi
+# 综合 / 实现输出（可重新生成）
+*.bit
+*.bin
+*.mcs
+*.prm
+*.ltx
+*.dcp
+# 编辑器备份
+*.bak
+*.bak[0-9]*
+*.backup.*
+
+# ================= Xilinx SDK / Vitis (Eclipse) =================
+# 工作区元数据与编译产物，保留 *.hdf / hw_platform / src / bsp 源码
+**/*.sdk/.metadata/
+**/*.sdk/RemoteSystemsTempFiles/
+**/*.sdk/webtalk/
+**/*.sdk/**/Debug/
+**/*.sdk/**/Release/
+# BSP 由 .hdf 重新生成，只保留驱动配置 system.mss
+**/*_bsp/*
+!**/*_bsp/system.mss
+*.o
+*.d
+*.elf
+*.map
+*.su
+
+# Vivado IP 生成的仿真行为模型（由 .xci 重新生成，单个 14 MB）
+**/ip/**/hdl/*vhsyn_rfs*
+
+# ================= LaTeX =================
+*.aux
+*.out
+*.toc
+*.lof
+*.lot
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.synctex(busy)
+*.xdv
+tmp-pdfcrop-*
+*.bbl
+*.blg
+*.nav
+*.snm
+*.vrb

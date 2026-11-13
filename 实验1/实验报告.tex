@@ -1,0 +1,359 @@
+﻿\documentclass[UTF8,a4paper,12pt]{ctexart}
+
+\usepackage{geometry}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{caption}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{hyperref}
+
+\geometry{left=2.7cm,right=2.7cm,top=2.5cm,bottom=2.5cm}
+\hypersetup{colorlinks=true,linkcolor=black,urlcolor=blue}
+
+\lstdefinestyle{svstyle}{
+  language=Verilog,
+  basicstyle=\ttfamily\small,
+  keywordstyle=\color{blue!70!black},
+  commentstyle=\color{green!40!black},
+  stringstyle=\color{orange!60!black},
+  numbers=left,
+  numberstyle=\tiny\color{gray},
+  frame=single,
+  breaklines=true,
+  columns=fullflexible,
+  tabsize=4,
+  showstringspaces=false
+}
+
+\title{数字设计实验报告：$(7,4)$ 海明码编码与纠错电路}
+\author{姓名：\underline{\hspace{2.4cm}}\quad 学号：\underline{\hspace{3.2cm}}\quad 班级：\underline{\hspace{2.4cm}}}
+\date{2026年5月11日}
+
+\begin{document}
+\maketitle
+
+\section{实验目的}
+
+本实验使用 SystemVerilog 在 Vivado 中设计并验证一个 $(7,4)$ 海明码电路。电路能够将 4 位输入数据编码为 7 位海明码，在指定位置注入单比特错误，并通过综合症计算定位错误位置，最后完成单比特纠错和原始数据恢复。
+
+通过本实验，需要掌握以下内容：
+\begin{enumerate}
+  \item 理解海明码中数据位、校验位和综合症之间的关系；
+  \item 掌握组合逻辑方式实现编码、错误注入、错误检测和纠错的方法；
+  \item 学会编写 testbench 对所有输入情况进行自动化遍历验证；
+  \item 熟悉 Vivado 工程中的顶层端口约束、综合、实现和比特流生成流程。
+\end{enumerate}
+
+\section{实验原理}
+
+\subsection{$(7,4)$ 海明码结构}
+
+$(7,4)$ 海明码使用 4 位有效数据生成 7 位码字，其中 3 位为校验位。设输入数据为
+\[
+data\_in = \{B_8,B_4,B_2,B_1\}
+\]
+本实验中 7 位码字的排列方式为
+\[
+code\_out = \{B_8,B_4,B_2,P_3,B_1,P_2,P_1\}
+\]
+也就是在输出向量中：
+\[
+code\_out[6]=B_8,\quad code\_out[5]=B_4,\quad code\_out[4]=B_2,\quad code\_out[3]=P_3
+\]
+\[
+code\_out[2]=B_1,\quad code\_out[1]=P_2,\quad code\_out[0]=P_1
+\]
+
+\subsection{校验位生成}
+
+海明码通过多个偶校验关系覆盖不同的数据位。根据当前代码实现，三个校验位定义为：
+\[
+P_1 = B_8 \oplus B_2 \oplus B_1
+\]
+\[
+P_2 = B_8 \oplus B_4 \oplus B_1
+\]
+\[
+P_3 = B_8 \oplus B_4 \oplus B_2
+\]
+其中 $\oplus$ 表示异或运算。异或运算的结果为 1 表示参与校验的位中有奇数个 1；在偶校验设计中，加入校验位后对应校验组应满足异或和为 0。
+
+\subsection{错误注入与综合症}
+
+为了验证纠错功能，实验使用 3 位输入 \verb|err_pos| 表示错误位置。当 \verb|err_pos=0| 时不注入错误；当 \verb|err_pos| 为 1 到 7 时，对应翻转码字中的一位。错误注入后的码字为：
+\[
+code\_err = code\_out \oplus pos\_mask(err\_pos)
+\]
+
+接收端重新计算校验关系，得到 3 位综合症 \verb|syndrome|：
+\[
+S_1 = code\_err[6]\oplus code\_err[4]\oplus code\_err[2]\oplus code\_err[0]
+\]
+\[
+S_2 = code\_err[6]\oplus code\_err[5]\oplus code\_err[2]\oplus code\_err[1]
+\]
+\[
+S_3 = code\_err[6]\oplus code\_err[5]\oplus code\_err[4]\oplus code\_err[3]
+\]
+综合症的数值正好对应错误位置。当 \verb|syndrome=0| 时表示没有检测到单比特错误；当 \verb|syndrome| 为 1 到 7 时，表示对应位置发生错误。
+
+\subsection{纠错与数据恢复}
+
+纠错过程再次利用位置掩码翻转出错位：
+\[
+code\_fix = code\_err \oplus pos\_mask(syndrome)
+\]
+纠正后的数据位从码字中取出：
+\[
+data\_fix = \{code\_fix[6],code\_fix[5],code\_fix[4],code\_fix[2]\}
+\]
+若电路正确，则对于任意 4 位输入数据和任意单比特错误位置，都应满足：
+\[
+data\_fix = data\_in,\qquad syndrome = err\_pos
+\]
+
+\section{系统设计}
+
+本实验工程包含两个主要模块：
+\begin{itemize}
+  \item \verb|hamming_code|：核心组合逻辑模块，负责编码、错误注入、综合症计算、纠错和数据恢复；
+  \item \verb|hamming_code_top|：板级顶层模块，将开发板开关 \verb|sw| 接入核心模块，并把结果输出到 LED。
+\end{itemize}
+
+顶层端口分配如下：
+\begin{table}[h]
+  \centering
+  \caption{顶层信号功能分配}
+  \begin{tabular}{lll}
+    \toprule
+    信号 & 位宽 & 功能 \\
+    \midrule
+    \verb|sw[3:0]| & 4 & 输入原始数据 \verb|data_in| \\
+    \verb|sw[6:4]| & 3 & 指定错误注入位置 \verb|err_pos| \\
+    \verb|led[2:0]| & 3 & 显示综合症 \verb|syndrome| \\
+    \verb|led[6:3]| & 4 & 显示纠错恢复后的数据 \verb|data_fix| \\
+    \verb|led[7]| & 1 & 错误标志 \verb|error_flag| \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\section{电路图}
+
+Vivado 综合后生成的 RTL 原理图如图 \ref{fig:schematic-main} 和图 \ref{fig:schematic-detail} 所示。电路整体由输入缓冲、海明码核心组合逻辑和 LED 输出缓冲构成。其中核心部分主要由异或门和少量选择逻辑组成，对应编码、错误注入、综合症计算与纠错恢复过程。
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\textwidth,trim=63pt 337pt 65pt 335pt,clip]{schematic.pdf}
+  \caption{海明码顶层电路图}
+  \label{fig:schematic-main}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\textwidth,trim=40pt 270pt 40pt 267pt,clip]{schematic1.pdf}
+  \caption{海明码核心逻辑展开图}
+  \label{fig:schematic-detail}
+\end{figure}
+
+\section{重点实现代码}
+
+\subsection{编码逻辑}
+
+编码部分先将 4 位输入拆分为 $B_8,B_4,B_2,B_1$，再使用异或逻辑生成 3 位校验位，最后拼接为 7 位码字。
+
+\begin{lstlisting}[style=svstyle,caption={海明码编码逻辑}]
+logic B8, B4, B2, B1;
+logic P1, P2, P3;
+
+assign {B8, B4, B2, B1} = data_in;
+
+assign P1 = B8 ^ B2 ^ B1;
+assign P2 = B8 ^ B4 ^ B1;
+assign P3 = B8 ^ B4 ^ B2;
+
+assign code_out = {B8, B4, B2, P3, B1, P2, P1};
+\end{lstlisting}
+
+\subsection{错误位置掩码函数}
+
+代码中定义了 \verb|pos_mask| 函数，把错误位置编号转换为 7 位独热掩码。该函数同时用于错误注入和错误纠正，使代码结构更简洁。
+
+\begin{lstlisting}[style=svstyle,caption={错误位置到掩码的转换函数}]
+function automatic logic [6:0] pos_mask(input logic [2:0] pos);
+    case (pos)
+        3'd0: pos_mask = 7'b000_0000;
+        3'd1: pos_mask = 7'b000_0001;
+        3'd2: pos_mask = 7'b000_0010;
+        3'd3: pos_mask = 7'b000_0100;
+        3'd4: pos_mask = 7'b000_1000;
+        3'd5: pos_mask = 7'b001_0000;
+        3'd6: pos_mask = 7'b010_0000;
+        3'd7: pos_mask = 7'b100_0000;
+        default: pos_mask = 7'b000_0000;
+    endcase
+endfunction
+\end{lstlisting}
+
+\subsection{错误注入、综合症计算与纠错}
+
+错误注入通过异或掩码实现；综合症由三组校验关系重新计算得到；纠错时根据综合症再次生成掩码并翻转对应位。
+
+\begin{lstlisting}[style=svstyle,caption={错误注入、综合症和纠错逻辑}]
+assign code_err = code_out ^ pos_mask(err_pos);
+
+assign syndrome[0] = code_err[6] ^ code_err[4] ^ code_err[2] ^ code_err[0];
+assign syndrome[1] = code_err[6] ^ code_err[5] ^ code_err[2] ^ code_err[1];
+assign syndrome[2] = code_err[6] ^ code_err[5] ^ code_err[4] ^ code_err[3];
+
+assign error_flag = |syndrome;
+
+assign code_fix = code_err ^ pos_mask(syndrome);
+assign data_fix = {code_fix[6], code_fix[5], code_fix[4], code_fix[2]};
+\end{lstlisting}
+
+\subsection{顶层显示逻辑}
+
+顶层模块将开关输入拆分为数据和错误位置，并将综合症、恢复数据、错误标志映射到 LED，便于在开发板上观察。
+
+\begin{lstlisting}[style=svstyle,caption={顶层模块 LED 显示逻辑}]
+hamming_code u_hamming_code (
+    .data_in    (sw[3:0]),
+    .err_pos    (sw[6:4]),
+    .code_out   (code_out),
+    .code_err   (code_err),
+    .syndrome   (syndrome),
+    .code_fix   (code_fix),
+    .data_fix   (data_fix),
+    .error_flag (error_flag)
+);
+
+assign led[2:0] = syndrome;
+assign led[6:3] = data_fix;
+assign led[7]   = error_flag;
+\end{lstlisting}
+
+\section{引脚约束}
+
+约束文件将 7 个开关和 8 个 LED 分别绑定到开发板物理引脚，并统一设置为 \verb|LVCMOS33| 电平标准。I/O Ports 约束对应关系如表 \ref{tab:io-ports} 所示。
+
+\begin{table}[H]
+  \centering
+  \caption{I/O Ports 引脚约束}
+  \label{tab:io-ports}
+  \begin{tabular}{ccc}
+    \toprule
+    端口 & 物理引脚 & 对应按键/显示 \\
+    \midrule
+    \verb|sw[0]| & K14 & 数据输入位 0 \\
+    \verb|sw[1]| & L15 & 数据输入位 1 \\
+    \verb|sw[2]| & G14 & 数据输入位 2 \\
+    \verb|sw[3]| & J14 & 数据输入位 3 \\
+    \verb|sw[4]| & F16 & 错误位置位 0 \\
+    \verb|sw[5]| & H15 & 错误位置位 1 \\
+    \verb|sw[6]| & D18 & 错误位置位 2 \\
+    \verb|led[0]| & G17 & 综合症位 0 \\
+    \verb|led[1]| & G19 & 综合症位 1 \\
+    \verb|led[2]| & G20 & 综合症位 2 \\
+    \verb|led[3]| & G18 & 恢复数据位 0 \\
+    \verb|led[4]| & K19 & 恢复数据位 1 \\
+    \verb|led[5]| & J18 & 恢复数据位 2 \\
+    \verb|led[6]| & H17 & 恢复数据位 3 \\
+    \verb|led[7]| & K18 & 错误标志 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\section{仿真验证}
+
+仿真文件 \verb|hamming_code_tb.sv| 对所有可能输入进行遍历。4 位数据共有 $2^4=16$ 种情况，错误位置 \verb|err_pos| 从 0 到 7 共 8 种情况，因此总共验证：
+\[
+16 \times 8 = 128
+\]
+组测试样例。
+
+testbench 的核心检查条件如下：
+\begin{lstlisting}[style=svstyle,caption={testbench 自动检查条件}]
+if (data_fix !== data_in) begin
+    $display("ERROR: data_in=%b err_pos=%0d data_fix=%b syndrome=%b",
+              data_in, err_pos, data_fix, syndrome);
+    error_count++;
+end
+
+if (syndrome !== err_pos) begin
+    $display("ERROR: data_in=%b err_pos=%0d syndrome=%b",
+              data_in, err_pos, syndrome);
+    error_count++;
+end
+\end{lstlisting}
+
+该验证方式覆盖了无错误情况和所有单比特错误情况。若 \verb|error_count| 保持为 0，则说明对于全部 128 组输入，电路均能正确定位错误并恢复原始数据。
+
+仿真波形如图 \ref{fig:simulation-wave} 所示。波形中可以观察到，\verb|data_in[3:0]| 按测试顺序依次变化，\verb|err_pos[2:0]| 在 0 到 7 之间循环取值；随着输入数据和错误位置变化，\verb|code_out[6:0]| 生成对应的 7 位海明码，\verb|code_err[6:0]| 在指定位置产生翻转。后续综合症和纠错输出与 testbench 的自动检查共同验证了电路能够完成单比特错误定位和数据恢复。
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\textwidth]{simulation_wave.png}
+  \caption{海明码编码与纠错仿真波形}
+  \label{fig:simulation-wave}
+\end{figure}
+
+\section{综合与实现结果}
+
+工程使用 Vivado 2018.3，目标器件为 \verb|xc7z010clg400-1|。实现报告显示设计已经完成布局布线，逻辑资源使用情况如下：
+
+\begin{table}[h]
+  \centering
+  \caption{资源利用情况}
+  \begin{tabular}{lccc}
+    \toprule
+    资源类型 & 使用量 & 可用量 & 利用率 \\
+    \midrule
+    Slice LUTs & 1 & 17600 & $<0.01\%$ \\
+    Slice Registers & 0 & 35200 & $0.00\%$ \\
+    DSPs & 0 & 80 & $0.00\%$ \\
+    Block RAM Tile & 0 & 60 & $0.00\%$ \\
+    Bonded IOB & 15 & 100 & $15.00\%$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+由于本实验电路为纯组合逻辑，没有时钟输入和寄存器，因此时序报告中没有用户指定时钟约束，WNS、TNS 等时序指标显示为 NA。布局布线报告显示共有 8 条可布线网络，均已完成布线，布线错误数为 0。
+
+\section{板级演示}
+
+完成综合、实现并生成比特流后，将工程下载到开发板进行验证。板级演示中，\verb|sw[3:0]| 用于输入原始数据，\verb|sw[6:4]| 用于选择人为制造的错误位置，LED 显示综合症、纠错后的数据和错误标志。
+
+图 \ref{fig:demo-initial} 为输入数据设置为 \verb|0100| 且不制造错误时的显示结果，此时综合症为 0，错误标志不应置位。图 \ref{fig:demo-error1} 和图 \ref{fig:demo-error2} 分别展示人为制造第 1 位和第 3 位错误时的板级现象，LED 显示的综合症能够反映错误位置，同时纠错后的数据保持为原始输入数据。
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.72\textwidth,angle=90]{demo_initial_0100.jpg}
+  \caption{板级演示：初始编码输入 0100}
+  \label{fig:demo-initial}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.72\textwidth,angle=90]{demo_error_pos1.jpg}
+  \caption{板级演示：人为制造第 1 位错误}
+  \label{fig:demo-error1}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.72\textwidth]{demo_error_pos2.jpg}
+  \caption{板级演示：人为制造第 3 位错误}
+  \label{fig:demo-error2}
+\end{figure}
+
+\section{实验结论}
+
+本实验完成了一个 $(7,4)$ 海明码编码与单比特纠错电路。设计使用异或组合逻辑生成校验位，通过综合症定位错误位置，并利用掩码翻转实现纠错。testbench 对 16 种输入数据和 8 种错误位置进行遍历，验证了电路在无错误和单比特错误情况下均能恢复原始数据。
+
+从综合和实现结果看，该设计只使用 1 个 LUT，不使用寄存器、DSP 或 BRAM，说明海明码核心功能可以用很少的组合逻辑资源实现。顶层模块把输入和输出映射到开发板开关与 LED，便于进行板级观察和调试。
+
+\end{document}
+

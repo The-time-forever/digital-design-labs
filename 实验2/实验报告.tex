@@ -1,0 +1,613 @@
+\documentclass[UTF8,a4paper,12pt]{ctexart}
+
+\usepackage{geometry}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{tikz}
+\usepackage{hyperref}
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric,fit,backgrounds,calc}
+
+\geometry{left=2.7cm,right=2.7cm,top=2.5cm,bottom=2.5cm}
+\hypersetup{colorlinks=true,linkcolor=black,urlcolor=blue}
+\captionsetup{font=small,skip=3pt}
+\captionsetup[subfigure]{font=small,skip=2pt}
+\setlength{\textfloatsep}{8pt}
+\setlength{\floatsep}{8pt}
+\setlength{\intextsep}{8pt}
+
+\tikzset{
+  flowblock/.style={
+    rectangle,
+    rounded corners=2pt,
+    draw=black!65,
+    fill=blue!6,
+    align=center,
+    minimum height=0.82cm,
+    text width=3.1cm,
+    font=\small
+  },
+  flowdecision/.style={
+    diamond,
+    aspect=2.1,
+    draw=black!65,
+    fill=orange!10,
+    align=center,
+    inner sep=1pt,
+    text width=2.8cm,
+    font=\small
+  },
+  flowio/.style={
+    trapezium,
+    trapezium left angle=70,
+    trapezium right angle=110,
+    draw=black!65,
+    fill=green!8,
+    align=center,
+    minimum height=0.78cm,
+    text width=3.0cm,
+    font=\small
+  },
+  flowgroup/.style={
+    draw=black!25,
+    rounded corners=4pt,
+    fill=gray!4,
+    inner sep=5pt
+  },
+  flowarrow/.style={-{Stealth[length=2.2mm]},thick,draw=black!70}
+}
+
+\lstdefinestyle{svstyle}{
+  language=Verilog,
+  basicstyle=\ttfamily\small,
+  keywordstyle=\color{blue!70!black},
+  commentstyle=\color{green!40!black},
+  stringstyle=\color{orange!60!black},
+  numbers=left,
+  numberstyle=\tiny\color{gray},
+  frame=single,
+  breaklines=true,
+  columns=fullflexible,
+  tabsize=4,
+  showstringspaces=false
+}
+
+\newcommand{\placeholderfig}[2]{
+  \begin{figure}[H]
+    \centering
+    \fbox{
+      \begin{minipage}[c][0.24\textheight][c]{0.88\textwidth}
+        \centering
+        \vspace{0.5em}
+        \textbf{图片占位符}\\[0.8em]
+        #2\\[0.5em]
+        后续可替换为 Vivado 截图、系统框图或板级实物照片。
+      \end{minipage}
+    }
+    \caption{#1}
+  \end{figure}
+}
+
+\newcommand{\demoimg}[3]{
+  \begin{subfigure}[t]{#1\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]{#2}
+    \caption{#3}
+  \end{subfigure}
+}
+
+\title{数字设计实验报告：基于 FPGA 的动漫音乐播放器与电子时钟闹铃系统}
+\author{姓名：\underline{\hspace{2.4cm}}\quad 学号：\underline{\hspace{3.2cm}}\quad 班级：\underline{\hspace{2.4cm}}}
+\date{2026年5月19日}
+
+\begin{document}
+\maketitle
+
+\section{实验目的}
+
+本实验基于 Xilinx Zynq-7000 FPGA 开发板和 EDA 拓展板，使用 SystemVerilog 在 Vivado 中设计一个集音乐播放、数码管显示、电子时钟和闹铃功能于一体的综合数字系统。工程顶层模块名为 \verb|anime_music_player_top|，主要实现无源蜂鸣器播放简化动漫旋律、按键控制播放状态、七段数码管动态显示、数字钟计时与闹铃触发等功能。
+
+通过本实验，需要掌握以下内容：
+\begin{enumerate}
+  \item 熟悉 Vivado 工程创建、源文件组织、约束添加、综合实现和比特流生成流程；
+  \item 掌握按键消抖、异步输入同步、计数分频、PWM 输出、数码管动态扫描等常用 FPGA 设计方法；
+  \item 理解模块化设计思想，将复杂系统拆分为按键处理、音符调度、音高译码、PWM 发生器、时钟核心、显示驱动等子模块；
+  \item 学会根据综合、实现、时序和资源报告分析设计是否满足硬件平台要求；
+  \item 结合教材中按键消抖、数码管驱动、无源蜂鸣器 PWM 驱动和音乐发生器相关实验内容，完成一个可上板运行的综合应用。
+\end{enumerate}
+
+\section{系统总体运行框架}
+
+从整体运行流程看，本系统以 50 MHz 系统时钟和复位信号作为时序基础，先对按键和拨码开关等外部输入进行同步、消抖和状态锁存，再由顶层模块根据模式开关统一调度音乐播放链路、电子时钟链路和闹铃链路。普通音乐播放与闹铃播放共用音符调度、音高译码和 PWM 输出模块；显示部分则根据当前模式在音乐状态、时钟时间和闹铃设置之间切换，最终驱动蜂鸣器、LED 和 8 位数码管。整体运行框架如图 \ref{fig:overall-flow} 所示。
+
+\begin{figure}[H]
+  \centering
+  \resizebox{0.96\textwidth}{!}{%
+  \begin{tikzpicture}[node distance=0.75cm and 1.0cm]
+    \node[flowio, text width=2.65cm] (power) {上电/复位\\50 MHz 时钟};
+    \node[flowblock, text width=2.65cm, right=0.85cm of power] (sync) {外部输入处理\\按键消抖\\开关同步};
+    \node[flowdecision, text width=2.45cm, right=0.85cm of sync] (mode) {顶层模式调度\\\texttt{sw\_mode}};
+
+    \node[flowblock, text width=3.15cm, below left=1.1cm and 1.2cm of mode] (musicctrl) {音乐模式控制\\播放/暂停\\切歌/速度/音量};
+    \node[flowblock, text width=3.15cm, below=0.55cm of musicctrl] (scheduler) {音符调度\\读取歌曲 ROM\\产生当前音符};
+    \node[flowblock, text width=3.15cm, below=0.55cm of scheduler] (pitch) {音高译码与 PWM\\周期查表\\占空比调节};
+
+    \node[flowblock, text width=3.15cm, below right=1.1cm and 1.2cm of mode] (clock) {时钟核心\\HH-MM-SS 计时\\时间设置};
+    \node[flowblock, text width=3.15cm, below=0.55cm of clock] (alarm) {闹铃判断\\时间匹配\\S3/10 秒停止};
+    \node[flowblock, text width=3.15cm, below=0.55cm of alarm] (alarmplay) {闹铃播放控制\\选择闹铃歌曲\\强制正常速度};
+
+    \coordinate (displaymid) at ($(pitch.south)!0.42!(alarmplay.south)$);
+    \node[flowblock, text width=3.25cm, below=1.15cm of displaymid] (dispselect) {显示数据选择\\音乐状态\\时间/闹铃设置};
+    \node[flowblock, text width=3.2cm, right=0.85cm of dispselect] (scan) {数码管扫描\\74HC595 串行驱动};
+    \node[flowblock, fill=green!8, text width=3.2cm, right=0.85cm of scan] (display) {板级显示输出\\8 位数码管\\LED 状态灯};
+    \node[flowio, text width=2.65cm, left=0.75cm of pitch] (beep) {蜂鸣器输出\\\texttt{beep}};
+
+    \draw[flowarrow] (power) -- (sync);
+    \draw[flowarrow] (sync) -- (mode);
+    \draw[flowarrow] (mode) -- (musicctrl);
+    \draw[flowarrow] (mode) -- (clock);
+
+    \draw[flowarrow] (musicctrl) -- (scheduler);
+    \draw[flowarrow] (scheduler) -- (pitch);
+    \draw[flowarrow] (clock) -- (alarm);
+    \draw[flowarrow] (alarm) -- (alarmplay);
+    \draw[flowarrow,dashed] (alarmplay.west) to[out=180,in=0,looseness=0.8] (scheduler.east);
+
+    \draw[flowarrow] (pitch.west) -- (beep.east);
+    \draw[flowarrow] (pitch.south) |- (dispselect.west);
+    \draw[flowarrow] (alarmplay.south) -- ++(0,-0.55) -| (dispselect.north);
+    \draw[flowarrow] (dispselect) -- (scan);
+    \draw[flowarrow] (scan) -- (display);
+  \end{tikzpicture}
+  }
+  \caption{系统总体运行框架流程图}
+  \label{fig:overall-flow}
+\end{figure}
+
+\section{实验平台与工程概况}
+
+\subsection{硬件与软件环境}
+
+实验硬件平台为基于 Zynq-7000 的 ACZ702 开发板及其 EDA 拓展板。工程使用开发板上的 50 MHz 系统时钟、复位按键、四个独立按键、若干拨码开关、蜂鸣器、8 位 LED 和 8 位七段数码管。软件环境为 Vivado 2018.3，目标器件为 \verb|xc7z010clg400-1|。
+
+教材《数字设计与嵌入式系统实验教程》中与本实验直接相关的内容包括：Vivado 软件入门、时序逻辑与数字钟、按键消抖、数码管动态扫描、74HC595 驱动、无源蜂鸣器 PWM 驱动和基于 PWM 的音乐发生器。本实验在这些基础模块之上进行了功能整合和扩展。
+
+\subsection{工程文件结构}
+
+工程目录为 \verb|anime_music_player|，主要设计文件位于：
+\[
+\texttt{anime\_music\_player.srcs/sources\_1/new}
+\]
+各文件功能如下表所示。
+
+\begin{table}[H]
+  \centering
+  \caption{主要源文件及功能}
+  \begin{tabular}{ll}
+    \toprule
+    文件名 & 功能说明 \\
+    \midrule
+    \verb|anime_music_player_top.sv| & 顶层模块，完成按键、音乐、时钟、显示和 LED 的系统集成 \\
+    \verb|key_debounce.sv| & 独立按键同步与消抖，输出单周期按下脉冲 \\
+    \verb|note_scheduler.sv| & 根据歌曲编号、速度和播放状态读取音符 ROM 并控制音符切换 \\
+    \verb|pitch_decoder.sv| & 将音符编码转换为 PWM 周期计数值 \\
+    \verb|pwm_gen.sv| & 根据周期值和比较值产生蜂鸣器 PWM 方波 \\
+    \verb|clock_core.sv| & 电子时钟、时间设置、闹铃设置、闹铃触发与停止控制 \\
+    \verb|hex8_scan.sv| & 8 位七段数码管动态扫描与十六进制段码译码 \\
+    \verb|hc595_driver.sv| & 74HC595 串行移位输出驱动 \\
+    \verb|song_rom.sv| & 行为级歌曲 ROM 参考实现 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\section{实验原理}
+
+\subsection{PWM 蜂鸣器发声原理}
+
+无源蜂鸣器本身不产生固定音调，需要由 FPGA 输出周期性方波驱动。设系统时钟频率为 $f_{clk}=50\,\text{MHz}$，若 PWM 计数周期为 $N$，则输出方波频率近似为：
+\[
+f_{out} \approx \frac{f_{clk}}{N}
+\]
+不同音符对应不同频率，因此可以预先把简谱音高映射为计数周期。例如工程中中音区 C4 到 B4 的计数周期约为 191113、170262、151685、143172、127551、113636、101239。音符为休止符时，周期值为 0，PWM 输出关闭。
+
+音量通过占空比调节实现。板上由 SW1、SW0 组成两位音量选择信号 \verb|sw_vol[1:0]|，顶层模块根据该信号选择不同的比较值 \verb|counter_ccr|，例如 $N/8$、$N/4$、$N/2$ 和 $3N/4$，从而改变蜂鸣器高电平占空比和听感响度。
+
+\subsection{音符编码与歌曲播放}
+
+本工程使用 16 位 \verb|note_word| 表示一个音符：
+\[
+\texttt{note\_word}=\{\texttt{octave[3:0]},\texttt{note[3:0]},2'b00,\texttt{dur[2:0]},3'b000\}
+\]
+其中 \verb|octave| 表示低音、中音或高音区，\verb|note| 表示 1 到 7 的 Do、Re、Mi、Fa、Sol、La、Si，\verb|dur| 表示音长单位。休止符用 \verb|octave=0| 且 \verb|note=0| 表示。
+
+\verb|note_scheduler| 根据当前歌曲编号确定 ROM 起始地址和结束地址。播放时内部计数器累计到当前音符持续时间后，地址加一并产生 \verb|note_change| 脉冲；若到达歌曲结束地址，则回到起始地址循环播放。速度档位通过改变基础节拍计数值实现。
+
+\subsection{按键消抖与同步}
+
+开发板独立按键为机械按键，按下和释放时存在电平抖动。工程中的 \verb|key_debounce| 先使用两级触发器把外部按键信号同步到系统时钟域，再比较同步后的按键状态与稳定状态。如果状态发生变化，则启动约 20 ms 的计数；只有当输入电平持续稳定到计数结束后，才更新按键状态，并在稳定按下时输出一个时钟周期的 \verb|key_pulse|。
+
+该方法能够避免一次物理按键被识别为多次触发，同时两级同步器也降低了异步输入带来的亚稳态风险。
+
+\subsection{七段数码管动态扫描}
+
+8 位数码管不能长期同时驱动全部位，而是通过快速轮流选通实现视觉上的同时显示。\verb|hex8_scan| 使用 50 MHz 时钟分频得到约 1 kHz 的扫描节拍，每次选通一位数码管，并从 32 位 \verb|disp_data| 中取出对应的 4 位显示数据。模块将 0 到 F 译码为七段段码，其中 \verb|E| 用作横杠，\verb|F| 用作空白。
+
+段码和位选信号拼接为 16 位数据后，由 \verb|hc595_driver| 串行送入 74HC595 芯片，再通过锁存信号更新数码管显示。
+
+\section{系统设计}
+
+\subsection{整体结构}
+
+系统总体运行框架如图 \ref{fig:overall-flow} 所示，Vivado 综合后的系统电路原理图如图 \ref{fig:schematic} 所示。顶层模块首先对四个独立按键 S0--S3 进行消抖，再根据拨码开关 SW7 在音乐模式和时钟模式之间切换。在音乐模式下，S0--S3 分别用于播放/暂停、切歌、加速和减速；在时钟模式下，S0--S3 分别用于选择设置字段、递增、递减和暂停/停止闹铃。系统共用蜂鸣器、LED 和七段数码管输出资源。
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{figures/schematic_cropped.pdf}
+  \caption{Vivado 综合后的系统电路原理图}
+  \label{fig:schematic}
+\end{figure}
+
+\subsection{功能模式}
+
+系统支持两种主要工作模式：
+\begin{enumerate}
+  \item 音乐模式：SW7=0。按键 S0 控制播放/暂停，S1 切换歌曲，S2 提高播放速度，S3 降低播放速度；SW1、SW0 组成两位音量档位。LED 显示节奏、速度、歌曲编号和播放状态，数码管显示歌曲、播放、速度、音量和当前音符信息。
+  \item 时钟模式：SW7=1。数码管显示当前时间 \verb|HH-MM-SS|；S0 选择设置字段，S1 加一，S2 减一，S3 暂停/继续计时或停止正在响铃的闹铃。SW6=1 进入闹铃设置，SW5=1 打开闹铃使能，SW3、SW2 选择闹铃歌曲。
+\end{enumerate}
+
+\subsection{顶层端口分配}
+
+\begin{table}[H]
+  \centering
+  \caption{顶层端口功能分配}
+  \begin{tabular}{lll}
+    \toprule
+    端口 & 位宽 & 功能 \\
+    \midrule
+    \verb|clk| & 1 & 50 MHz 系统时钟 \\
+    \verb|reset_n| & 1 & 低有效复位 \\
+    \verb|key0|--\verb|key3| & 4 & 独立按键 S0--S3 \\
+    \verb|sw_vol[1:0]| & 2 & SW1、SW0，音量选择 \\
+    \verb|sw_mode| & 1 & SW7，0 为音乐模式，1 为时钟模式 \\
+    \verb|sw_alarm_song[1:0]| & 2 & SW3、SW2，闹铃歌曲选择 \\
+    \verb|sw_alarm_en| & 1 & SW5，闹铃使能 \\
+    \verb|sw_alarm_set| & 1 & SW6，闹铃设置模式选择 \\
+    \verb|beep| & 1 & 无源蜂鸣器 PWM 输出 \\
+    \verb|led[7:0]| & 8 & 状态指示灯 \\
+    \verb|seg_dio| & 1 & 74HC595 串行数据输入 \\
+    \verb|seg_sclk| & 1 & 74HC595 移位时钟 \\
+    \verb|seg_rclk| & 1 & 74HC595 锁存时钟 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\section{关键模块实现}
+
+\subsection{顶层播放控制}
+
+音乐模式下，顶层模块用三个寄存器保存播放状态、歌曲编号和速度档位。进入时钟模式的上升沿会立即关闭播放，避免时钟显示状态下蜂鸣器继续播放普通音乐。
+
+\begin{lstlisting}[style=svstyle,caption={音乐播放状态控制}]
+always @(posedge clk or negedge reset_n) begin
+    if (!reset_n) begin
+        play_en     <= 1'b0;
+        song_id     <= 2'd0;
+        speed_level <= 2'd1;
+    end else if (clock_mode_rise) begin
+        play_en <= 1'b0;
+    end else if (!clock_mode) begin
+        if (key0_pulse)
+            play_en <= ~play_en;
+
+        if (key1_pulse) begin
+            if (song_id == 2'd2)
+                song_id <= 2'd0;
+            else
+                song_id <= song_id + 1'b1;
+        end
+
+        if (key2_pulse && speed_level < 2'd2)
+            speed_level <= speed_level + 1'b1;
+
+        if (key3_pulse && speed_level > 2'd0)
+            speed_level <= speed_level - 1'b1;
+    end
+end
+\end{lstlisting}
+
+\subsection{按键消抖模块}
+
+\verb|key_debounce| 的核心思想是在输入变化后等待 \verb|CNT_MAX| 个时钟周期。工程默认 \verb|CNT_MAX=1_000_000|，在 50 MHz 时钟下约为 20 ms。
+
+\begin{lstlisting}[style=svstyle,caption={按键消抖核心逻辑}]
+always @(posedge clk or negedge reset_n) begin
+    if (!reset_n) begin
+        key_state <= 1'b1;
+        key_pulse <= 1'b0;
+        cnt <= 20'd0;
+    end else begin
+        key_pulse <= 1'b0;
+
+        if (key_sync1 == key_state) begin
+            cnt <= 20'd0;
+        end else begin
+            if (cnt == CNT_MAX - 1'b1) begin
+                key_state <= key_sync1;
+                cnt <= 20'd0;
+
+                if (key_sync1 == 1'b0)
+                    key_pulse <= 1'b1;
+            end else begin
+                cnt <= cnt + 1'b1;
+            end
+        end
+    end
+end
+\end{lstlisting}
+
+\subsection{音符调度模块}
+
+\verb|note_scheduler| 根据 \verb|song_id| 确定歌曲地址范围。工程中共配置三段旋律，地址范围分别为 0--38、48--90 和 112--151。音符持续时间由基础节拍和音长字段相乘得到，速度档位越高，基础节拍越短。
+
+\begin{lstlisting}[style=svstyle,caption={歌曲地址范围和速度节拍选择}]
+always @(*) begin
+    case (song_id)
+        2'd0: begin start_addr = 8'd0;   end_addr = 8'd38;  end
+        2'd1: begin start_addr = 8'd48;  end_addr = 8'd90;  end
+        2'd2: begin start_addr = 8'd112; end_addr = 8'd151; end
+        default: begin start_addr = 8'd0; end_addr = 8'd38; end
+    endcase
+end
+
+always @(*) begin
+    case (speed_level)
+        2'd0: base_ticks = 32'd8_000_000;
+        2'd1: base_ticks = 32'd6_250_000;
+        2'd2: base_ticks = 32'd4_500_000;
+        default: base_ticks = 32'd6_250_000;
+    endcase
+end
+\end{lstlisting}
+
+播放计数达到当前音符持续时间后，地址自动加一；当播放到结束地址时回到起始地址，实现循环播放。
+
+\begin{lstlisting}[style=svstyle,caption={音符地址推进逻辑}]
+if (play_en) begin
+    if (tick_cnt >= note_ticks - 1'b1) begin
+        tick_cnt <= 35'd0;
+        note_change <= 1'b1;
+
+        if (addr >= end_addr)
+            addr <= start_addr;
+        else
+            addr <= addr + 1'b1;
+    end else begin
+        tick_cnt <= tick_cnt + 1'b1;
+    end
+end
+\end{lstlisting}
+
+\subsection{音高译码与 PWM 输出}
+
+\verb|pitch_decoder| 从 \verb|note_word| 中取出音区和音名，通过组合逻辑查表得到 PWM 周期计数值。随后 \verb|pwm_gen| 按 \verb|counter_arr| 周期循环计数，并将计数值与 \verb|counter_ccr| 比较，产生可调占空比方波。
+
+\begin{lstlisting}[style=svstyle,caption={PWM 发生器核心逻辑}]
+always @(posedge clk or negedge reset_n) begin
+    if (!reset_n) begin
+        counter <= 32'd0;
+        pwm_out <= 1'b0;
+    end else begin
+        if (!pwm_en || counter_arr == 32'd0) begin
+            counter <= 32'd0;
+            pwm_out <= 1'b0;
+        end else begin
+            if (counter >= counter_arr)
+                counter <= 32'd0;
+            else
+                counter <= counter + 1'b1;
+
+            if (counter < counter_ccr)
+                pwm_out <= 1'b1;
+            else
+                pwm_out <= 1'b0;
+        end
+    end
+end
+\end{lstlisting}
+
+\subsection{电子时钟与闹铃模块}
+
+\verb|clock_core| 使用 26 位计数器对 50 MHz 时钟分频，产生 1 Hz 计时节拍。时钟数据采用 BCD 形式保存，包括时、分、秒。计时运行时，秒个位满 9 进位到秒十位，秒十位满 5 进位到分钟，分钟满 59 进位到小时，小时到达 23:59:59 后回到 00:00:00。
+
+闹铃部分保存独立的小时和分钟设置值，默认闹铃时间为 00:01。当闹铃使能、非闹铃设置模式、当前小时和分钟等于闹铃时间且秒为 00 时，\verb|alarm_active| 置位。闹铃响铃时顶层模块强制选择闹铃歌曲、正常速度并启动播放，响铃最长持续 10 秒，也可通过 S3 按键提前停止。
+
+\begin{lstlisting}[style=svstyle,caption={闹铃触发条件}]
+assign alarm_trigger = alarm_enable && !alarm_set_mode &&
+                       (hour_t == alm_hour_t) && (hour_o == alm_hour_o) &&
+                       (min_t  == alm_min_t)  && (min_o  == alm_min_o)  &&
+                       (sec_t  == 4'd0)       && (sec_o  == 4'd0);
+\end{lstlisting}
+
+\subsection{显示与 LED 状态指示}
+
+顶层模块在音乐模式和时钟模式之间复用显示资源。音乐模式下，数码管从高位到低位显示歌曲编号、播放状态、速度、音量、当前音区和音名；时钟模式下显示 \verb|HH-MM-SS|，闹铃设置模式下显示 \verb|A#-HH-MM|。
+
+\begin{lstlisting}[style=svstyle,caption={数码管显示数据选择}]
+assign music_disp_data = {
+    disp_song,
+    4'hF,
+    disp_play,
+    4'hF,
+    disp_speed,
+    disp_vol,
+    disp_octave,
+    disp_note
+};
+
+assign disp_data = clock_mode ? clock_disp_data : music_disp_data;
+\end{lstlisting}
+
+LED 在两种模式下含义不同。音乐模式下，\verb|led[7:5]| 为节奏流水灯，\verb|led[4:3]| 为速度档位，\verb|led[2:1]| 为歌曲编号，\verb|led[0]| 为播放状态；时钟模式下，\verb|led[7]| 为 1 Hz 闪烁，\verb|led[6]| 为闹铃响铃状态，\verb|led[2:1]| 为当前设置字段，\verb|led[0]| 为计时运行状态。
+
+\section{引脚约束}
+
+工程约束文件为 \verb|anime_music_player.xdc|。主要端口引脚分配如下表所示，I/O 电平标准均为 \verb|LVCMOS33|。
+
+\begin{table}[H]
+  \centering
+  \caption{主要引脚约束}
+  \begin{tabular}{lll}
+    \toprule
+    端口 & 物理引脚 & 功能 \\
+    \midrule
+    \verb|clk| & U18 & 50 MHz 系统时钟 \\
+    \verb|reset_n| & H18 & 低有效复位 \\
+    \verb|beep| & G15 & 无源蜂鸣器输出 \\
+    \verb|key0| & H20 & S0，播放/选择字段 \\
+    \verb|key1| & H16 & S1，切歌/加一 \\
+    \verb|key2| & J20 & S2，加速/减一 \\
+    \verb|key3| & J19 & S3，减速/暂停或停止闹铃 \\
+    \verb|led[0]|--\verb|led[7]| & G17,G19,G20,G18,K19,J18,H17,K18 & 8 位 LED \\
+    \verb|seg_dio| & D20 & 74HC595 串行数据 \\
+    \verb|seg_sclk| & E19 & 74HC595 移位时钟 \\
+    \verb|seg_rclk| & F17 & 74HC595 锁存时钟 \\
+    \verb|sw_vol[0]| & K14 & SW0，音量选择位 0 \\
+    \verb|sw_vol[1]| & L15 & SW1，音量选择位 1 \\
+    \verb|sw_mode| & E17 & SW7，音乐/时钟模式选择 \\
+    \verb|sw_alarm_song[0]| & G14 & SW2，闹铃歌曲选择位 0 \\
+    \verb|sw_alarm_song[1]| & J14 & SW3，闹铃歌曲选择位 1 \\
+    \verb|sw_alarm_en| & H15 & SW5，闹铃使能 \\
+    \verb|sw_alarm_set| & D18 & SW6，闹铃设置模式 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\section{综合与实现结果}
+
+工程已完成综合、布局布线和比特流生成。实现报告显示目标器件为 \verb|xc7z010clg400-1|，设计状态为 Fully Placed。主要资源利用率如下表所示。
+
+\begin{table}[H]
+  \centering
+  \caption{资源利用情况}
+  \begin{tabular}{lccc}
+    \toprule
+    资源类型 & 使用量 & 可用量 & 利用率 \\
+    \midrule
+    Slice LUTs & 566 & 17600 & 3.22\% \\
+    Slice Registers & 337 & 35200 & 0.96\% \\
+    Block RAM Tile & 0.5 & 60 & 0.83\% \\
+    RAMB18 & 1 & 120 & 0.83\% \\
+    DSPs & 0 & 80 & 0.00\% \\
+    Bonded IOB & 25 & 100 & 25.00\% \\
+    BUFGCTRL & 1 & 32 & 3.13\% \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+从资源结果可以看出，本设计主要消耗少量 LUT 和触发器，歌曲 ROM 使用了 1 个 RAMB18，未使用 DSP 资源。I/O 使用率为 25\%，主要来自按键、开关、LED、蜂鸣器和数码管 74HC595 接口。
+
+时序报告中系统时钟约束为 20 ns，对应 50 MHz。实现后的最差建立时间裕量 WNS 为 9.079 ns，总建立时间违例 TNS 为 0，最差保持时间裕量 WHS 为 0.057 ns，总保持时间违例 THS 为 0。Vivado 报告显示所有用户指定时序约束均已满足。
+
+\begin{table}[H]
+  \centering
+  \caption{时序与功耗结果}
+  \begin{tabular}{lc}
+    \toprule
+    指标 & 数值 \\
+    \midrule
+    时钟周期 & 20.000 ns \\
+    时钟频率 & 50.000 MHz \\
+    WNS & 9.079 ns \\
+    TNS & 0.000 ns \\
+    WHS & 0.057 ns \\
+    THS & 0.000 ns \\
+    片上总功耗 & 0.097 W \\
+    动态功耗 & 0.004 W \\
+    静态功耗 & 0.093 W \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+布线报告显示共有 1474 条逻辑网络，其中 936 条需要布线的网络已全部完成布线，布线错误数为 0。比特流生成日志显示 \verb|Bitgen Completed Successfully|，说明工程已经能够生成可下载到开发板的 \verb|anime_music_player_top.bit| 文件。
+
+DRC 报告中存在若干 Warning，主要包括 RAMB18 异步控制检查和 Zynq PS7 相关提示，未出现 Error 或 Critical Warning。由于本实验使用了 Block Memory Generator 生成歌曲 ROM，相关 RAMB18 警告需要在后续完善中结合 IP 配置进一步检查，但当前实现流程和比特流生成已成功完成。
+
+\section{板级操作与实验现象}
+
+下载比特流后，围绕音乐播放、切歌调速、时钟设置、闹铃触发和计时暂停/恢复五组功能进行板级演示。演示时先按复位键清零内部状态，再根据当前功能切换拨码开关和按键，重点观察蜂鸣器、8 位数码管和 LED 的同步变化。
+
+具体板级操作如下：
+\begin{enumerate}
+  \item 音乐播放演示：将 SW7 拨到 0 进入音乐模式，调节 SW1、SW0 选择合适音量。按 S0 后蜂鸣器开始播放第 1 首旋律，数码管显示歌曲编号、播放状态、速度档、音量档和当前音符；再次按 S0 后播放状态位变为暂停，蜂鸣器停止输出。
+  \item 切歌与调速演示：在音乐播放状态下按 S1，歌曲编号切换到第 2 首；再按 S2 将速度档调至快速档，数码管速度位随之变化，蜂鸣器输出节奏加快。
+  \item 当前时间设置演示：将 SW7 拨到 1 进入时钟模式，同时保持 SW6=0，使数码管显示当前时间。按 S0 依次选择小时、分钟、秒字段，使用 S1/S2 对选中字段加一或减一。图 \ref{fig:board-demo-1}(d)--(f) 分别对应调整小时、调整分钟和秒字段调到目标值附近。
+  \item 闹铃触发演示：将 SW6 拨到 1 进入闹铃设置模式，通过 SW3、SW2 选择闹铃歌曲，并用 S0、S1、S2 将闹铃时间设为 00:01。随后将 SW6 拨回 0、将 SW5 拨到 1 打开闹铃使能，等待当前时间与闹铃时间匹配。匹配后蜂鸣器强制播放闹铃歌曲，LED6 点亮表示闹铃正在响。
+  \item 计时暂停/恢复演示：在时钟模式且闹铃未响时按 S3，计时运行状态切换；再次按 S3 后恢复计时。板级照片中第 11、12 张的秒数继续变化，说明演示记录的是恢复计时后的运行状态。
+\end{enumerate}
+
+预期现象为：音乐模式下蜂鸣器按歌曲 ROM 中的音符序列播放，数码管实时显示歌曲、播放、速度、音量和当前音符；时钟模式下数码管显示当前时间，LED7 按 1 Hz 闪烁；闹铃时间匹配时，系统自动播放设定歌曲并在 10 秒后停止。
+
+图 \ref{fig:board-demo-1} 和图 \ref{fig:board-demo-2} 将 12 张板级实物照片按演示功能整理。
+
+\begin{figure}[p]
+  \centering
+  \demoimg{0.47}{figures/board_demo_01.jpg}{音乐播放：第 1 首歌曲播放状态}
+  \hfill
+  \demoimg{0.47}{figures/board_demo_02.jpg}{音乐播放：按 S0 后暂停播放}
+
+  \vspace{0.5em}
+  \demoimg{0.47}{figures/board_demo_03.jpg}{切歌调速：切换第 2 首并调至快速档}
+  \hfill
+  \demoimg{0.47}{figures/board_demo_05.jpg}{时间设置：进入时钟模式并调整小时}
+
+  \vspace{0.5em}
+  \demoimg{0.47}{figures/board_demo_06.jpg}{时间设置：调整分钟字段}
+  \hfill
+  \demoimg{0.47}{figures/board_demo_07.jpg}{时间设置：秒字段调整到 50}
+  \caption{板级演示（一）：音乐播放、切歌调速和当前时间设置}
+  \label{fig:board-demo-1}
+\end{figure}
+
+\begin{figure}[p]
+  \centering
+  \demoimg{0.47}{figures/board_demo_08.jpg}{时间设置：设置完成后继续计时}
+  \hfill
+  \demoimg{0.47}{figures/board_demo_09.jpg}{闹铃设置：闹铃时间设置为 00:01}
+
+  \vspace{0.5em}
+  \demoimg{0.47}{figures/board_demo_10.jpg}{闹铃触发：当前时间到 00:01:01，闹铃响}
+  \hfill
+  \demoimg{0.47}{figures/board_demo_04.jpg}{闹铃结束：触发后恢复正常计时}
+
+  \vspace{0.5em}
+  \demoimg{0.47}{figures/board_demo_11.jpg}{暂停/恢复：恢复后的计时状态}
+  \hfill
+  \demoimg{0.47}{figures/board_demo_12.jpg}{暂停/恢复：秒数继续变化}
+  \caption{板级演示（二）：闹铃设置、闹铃触发和时钟暂停/恢复}
+  \label{fig:board-demo-2}
+\end{figure}
+\clearpage
+
+\section{问题分析与改进方向}
+
+本实验工程已经实现基本功能，但仍有进一步优化空间：
+\begin{enumerate}
+  \item 当前歌曲旋律由简谱人工编码，旋律数量和音色较简单。后续可扩展为更大的 ROM 或从外部存储读取乐谱；
+  \item 蜂鸣器为单声道方波输出，只能播放单音旋律。若需要更好的音效，可加入包络控制、混音或外接音频 DAC；
+  \item 当前时钟复位后从 00:00:00 开始计时，不具备掉电保持能力。后续可加入 RTC、外部存储或串口校时功能；
+  \item DRC 中的 RAMB18 异步控制 Warning 需要结合 ROM IP 配置进一步排查，使工程报告更加规范；
+  \item 顶层功能较多，后续可补充自动化验证，对模式切换、闹铃触发和显示复用进行更完整的检查。
+\end{enumerate}
+
+\section{实验结论}
+
+本实验完成了一个基于 FPGA 的动漫音乐播放器与电子时钟闹铃系统。系统通过模块化方式实现了按键消抖、歌曲音符调度、音高译码、PWM 蜂鸣器驱动、七段数码管动态扫描、74HC595 串行显示驱动、电子时钟和闹铃控制等功能。顶层模块通过模式开关在音乐播放和时钟显示之间切换，并复用蜂鸣器、LED 和数码管等板级资源。
+
+从实现结果看，工程在 \verb|xc7z010clg400-1| 器件上仅使用 566 个 LUT、337 个寄存器和 1 个 RAMB18，资源占用较低；时序报告显示 50 MHz 时钟约束全部满足，布线错误数为 0，比特流生成成功。实验结果说明该设计能够在 FPGA 上实现多模块协同的综合数字系统，也验证了教材中按键、计数器、PWM、数码管和模块化设计方法在实际应用中的有效性。
+
+\end{document}
