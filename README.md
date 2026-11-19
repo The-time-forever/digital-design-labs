@@ -1,6 +1,6 @@
 # 数字设计与计算机原理实验
 
-> Zynq-7000 与树莓派上的八个实验工程，涵盖逻辑函数、译码器、LED 分频闪烁、乘法器、汉明码纠错、音乐播放器、PS/PL 互控 LED 和车辆传感器综合系统，另附实验报告与素材。
+> Zynq-7000 与树莓派上的十一个实验工程，涵盖组合逻辑、加法与乘法、计数与分频、汉明码纠错、音乐播放器、PS/PL 互控 LED 和车辆传感器综合系统，另附实验报告与素材。
 
 ![Vivado](https://img.shields.io/badge/Vivado-2018.3-blue)
 ![Device](https://img.shields.io/badge/device-xc7z010clg400--1-orange)
@@ -20,8 +20,9 @@
 
 ## 项目简介
 
-这是“数字设计与计算机原理”课程的实验归档，包含七个 Xilinx Vivado 工程（Zynq-7000，
+这是“数字设计与计算机原理”课程的实验归档，包含十个 Xilinx Vivado 工程（Zynq-7000，
 器件 `xc7z010clg400-1`）、一个树莓派 4B 的 C 工程，以及实验报告的 LaTeX 源文件与成品 PDF。
+编号实验位于 `实验1/` 至 `实验3/`，其余 Vivado 工程集中在 `其他/`。
 
 **做了什么**
 
@@ -39,6 +40,11 @@
 7. **LED 分频闪烁** —— 用 26 位计数器对 50 MHz 时钟计数，每秒翻转一次 LED，完整闪烁周期为 2 秒。
 8. **4×4 位无符号乘法器** —— 将两个四位拨码输入相乘，用全加器构成的串行进位加法器累加四组部分积，
    再用八盏 LED 显示乘积。
+9. **二进制计数器** —— 用 25 位计数器累加时钟脉冲，到达 `MCNT` 后清零并翻转 LED。默认配置下，
+   50 MHz 时钟每计满 2500 万个周期翻转一次 LED。
+10. **4 位超前进位加法器** —— 用各位的进位生成和传播信号直接求出各级进位，LED 显示四位和、
+    进位输出和进位输入。
+11. **1 位全加器** —— 将两个一位输入和进位输入相加，用异或得到和，用与或逻辑得到进位输出。
 
 **为什么这样组织**
 
@@ -61,14 +67,17 @@
 
 | 目录 | 题目 | 平台 | 实现要点 | 状态 |
 |---|---|---|---|---|
-| `mux4_1_lut/` | 组合逻辑：MUX 实现逻辑函数 | Zynq PL | `mux4_1.sv` + 4 个常数 MUX 搭出 AND/OR/XOR/NAND | 综合/实现/比特流完成，2 个 testbench |
+| `其他/mux4_1_lut/` | 组合逻辑：MUX 实现逻辑函数 | Zynq PL | `mux4_1.sv` + 4 个常数 MUX 搭出 AND/OR/XOR/NAND | 综合/实现/比特流完成，2 个 testbench |
 | `实验1/` | 汉明码编解码 | Zynq PL | 编码、注入错误、syndrome 定位、纠正 | 完成，有自检 testbench |
 | `实验2/` | 动漫音乐播放器 | Zynq PL | 分频、乐谱 ROM、74HC595、数码管扫描、时钟/闹钟 | 完成，上板验证（无 testbench） |
-| `key_ctrl_led/` | PS/PL 按键互控 LED | Zynq PS+PL | Block Design + SDK C 程序（`XGpioPs`） | 完成（BSP 需用 `.hdf` 重建） |
+| `其他/key_ctrl_led/` | PS/PL 按键互控 LED | Zynq PS+PL | Block Design + SDK C 程序（`XGpioPs`） | 完成（BSP 需用 `.hdf` 重建） |
 | `实验3/` | 车辆传感器综合实验 | 树莓派 4B | wiringPi + I2C，五项功能 | 完成，上板验证 |
-| `decoder3_8/` | 3 线–8 线译码器 | Zynq PL | SW0–SW2 输入三位编码，LED0–LED7 显示译码结果 | 有 testbench，覆盖 8 种输入 |
-| `led_flash/` | LED 分频闪烁 | Zynq PL | 26 位计数器、低有效异步复位、LED 定时翻转 | 含 RTL 和引脚约束 |
-| `mul4x4/` | 4×4 位无符号乘法器 | Zynq PL | SW0–SW3 和 SW4–SW7 分别输入两个操作数，LED0–LED7 显示乘积 | 有自检 testbench，覆盖 256 种输入 |
+| `其他/decoder3_8/` | 3 线–8 线译码器 | Zynq PL | SW0–SW2 输入三位编码，LED0–LED7 显示译码结果 | 有 testbench，覆盖 8 种输入 |
+| `其他/led_flash/` | LED 分频闪烁 | Zynq PL | 26 位计数器、低有效异步复位、LED 定时翻转 | 含 RTL 和引脚约束 |
+| `其他/mul4x4/` | 4×4 位无符号乘法器 | Zynq PL | SW0–SW3 和 SW4–SW7 分别输入两个操作数，LED0–LED7 显示乘积 | 有自检 testbench，覆盖 256 种输入 |
+| `其他/bin_counter/` | 二进制计数器 | Zynq PL | 25 位计数器、低有效异步复位、计满翻转 LED | 有 testbench |
+| `其他/cla4_adder/` | 4 位超前进位加法器 | Zynq PL | 拨码输入两个四位操作数，LED 显示和及进位 | 有自检 testbench，覆盖 512 种输入 |
+| `其他/full_adder/` | 1 位全加器 | Zynq PL | `A`、`B`、`Cin` 输入，输出和 `S` 与进位 `Cout` | 有 testbench，覆盖 8 种输入 |
 
 ## 目录结构
 
@@ -77,9 +86,6 @@
 ├── README.md
 ├── .gitignore            Vivado / SDK / LaTeX 生成物
 ├── .gitattributes        Git LFS 规则（图片、PDF、Word）
-├── mux4_1_lut/           4 选 1 选择器 → 逻辑函数（LUT）
-│   ├── mux4_1_lut.xpr
-│   └── mux4_1_lut.srcs/  sources_1(设计) constrs_1(xdc) sim_1(testbench)
 ├── 实验1/                 汉明码
 │   ├── hamming_code/     Vivado 工程
 │   ├── 实验报告.tex/.pdf
@@ -98,18 +104,23 @@
 │   ├── 车辆传感器综合实验报告.tex/.pdf
 │   ├── report_assets/    报告插图
 │   └── 原始照片/
-├── key_ctrl_led/         Vivado 工程 + key_ctrl_led.sdk/（SDK 工作区）
-├── decoder3_8/           3 线–8 线译码器
-├── led_flash/            LED 分频闪烁
-├── mul4x4/               4×4 位无符号乘法器
-└── docs/                 课程教程 PDF、树莓派指导书、Win10 网络共享笔记
+├── 其他/                 其余 Vivado 工程
+│   ├── bin_counter/      二进制计数器
+│   ├── cla4_adder/       4 位超前进位加法器
+│   ├── decoder3_8/       3 线–8 线译码器
+│   ├── full_adder/       1 位全加器
+│   ├── key_ctrl_led/     PS/PL 互控 LED，含 SDK 工作区
+│   ├── led_flash/        LED 分频闪烁
+│   ├── mul4x4/           4×4 位无符号乘法器
+│   └── mux4_1_lut/       4 选 1 选择器实现逻辑函数（LUT）
+└── docs/                 课程教程 PDF、树莓派指导书
 ```
 
 ## 使用方法
 
-### 1. `mux4_1_lut` —— 用 MUX 实现逻辑函数
+### 1. `其他/mux4_1_lut` —— 用 MUX 实现逻辑函数
 
-打开 `mux4_1_lut.xpr`，顶层是 `mux4_1_top`。
+打开 `其他/mux4_1_lut/mux4_1_lut.xpr`，顶层是 `mux4_1_top`。
 
 | 拨码 / LED | 引脚 | 作用 |
 |---|---|---|
@@ -165,12 +176,12 @@ LED 含义随模式切换：音乐模式 `[7:5]` 节奏、`[4:3]` 速度、`[2:1
 时钟模式 `[7]` 1 Hz 闪烁、`[6]` 闹铃响、`[2:1]` 设置字段、`[0]` 走时。
 数码管经 `hc595_driver` 三线（D20 / E19 / F17）驱动，扫描译码在 `hex8_scan` 里。
 
-### 4. `key_ctrl_led` —— PS 与 PL 互控
+### 4. `其他/key_ctrl_led` —— PS 与 PL 互控
 
-1. Vivado 打开 `key_ctrl_led.xpr`（Block Design `system` 里只有 `processing_system7`，
+1. Vivado 打开 `其他/key_ctrl_led/key_ctrl_led.xpr`（Block Design `system` 里只有 `processing_system7`，
    EMIO 引到 T14 / F20），跑完综合实现后 `File → Export → Export Hardware`（勾选比特流），
    得到 `.hdf`。
-2. SDK 2018.3 打开 `key_ctrl_led.sdk` 工作区；BSP 未入库，按 `system.mss` 重新生成
+2. SDK 2018.3 打开 `其他/key_ctrl_led/key_ctrl_led.sdk` 工作区，按 `system.mss` 重新生成 BSP
    （standalone 即可）。
 3. Build `key_ctrl_led`，下载运行。
 
