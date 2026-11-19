@@ -1,10 +1,10 @@
 # 数字设计与计算机原理实验
 
-> Zynq-7000 与树莓派上的五个实验工程、实验报告与素材：从"用 4 选 1 选择器搭逻辑函数"，一路做到汉明码纠错、74HC595 音乐播放器、PS/PL 互控 LED 和树莓派车辆传感器综合系统。
+> Zynq-7000 与树莓派上的八个实验工程，涵盖逻辑函数、译码器、LED 分频闪烁、乘法器、汉明码纠错、音乐播放器、PS/PL 互控 LED 和车辆传感器综合系统，另附实验报告与素材。
 
 ![Vivado](https://img.shields.io/badge/Vivado-2018.3-blue)
 ![Device](https://img.shields.io/badge/device-xc7z010clg400--1-orange)
-![HDL](https://img.shields.io/badge/HDL-SystemVerilog-success)
+![HDL](https://img.shields.io/badge/HDL-Verilog%20%7C%20SystemVerilog-success)
 ![Reports](https://img.shields.io/badge/reports-XeLaTeX%20%7C%20pdfLaTeX-lightgrey)
 ![LFS](https://img.shields.io/badge/binaries-Git%20LFS-informational)
 
@@ -20,8 +20,8 @@
 
 ## 项目简介
 
-这是"数字设计与计算机原理"课程的实验归档：四个 Xilinx Vivado 工程（Zynq-7000，
-器件 `xc7z010clg400-1`）加一个树莓派 4B 的 C 工程，以及对应实验报告的 LaTeX 源文件与成品 PDF。
+这是“数字设计与计算机原理”课程的实验归档，包含七个 Xilinx Vivado 工程（Zynq-7000，
+器件 `xc7z010clg400-1`）、一个树莓派 4B 的 C 工程，以及实验报告的 LaTeX 源文件与成品 PDF。
 
 **做了什么**
 
@@ -35,11 +35,14 @@
    交叉点亮对方的 LED，用来理解 PS 与 PL 的边界。
 5. **树莓派车辆传感器综合系统** —— 自动大灯、自动雨刷、超声波测距报警、编码器里程计量、
    MPU6050 姿态检测，五项功能共用一条 I2C 总线和 100 ms 主循环。
+6. **3 线–8 线译码器** —— 用 `case` 将三位拨码输入译成八位独热码，每种输入只点亮对应的一盏 LED。
+7. **LED 分频闪烁** —— 用 26 位计数器对 50 MHz 时钟计数，每秒翻转一次 LED，完整闪烁周期为 2 秒。
+8. **4×4 位无符号乘法器** —— 将两个四位拨码输入相乘，用全加器构成的串行进位加法器累加四组部分积，
+   再用八盏 LED 显示乘积。
 
 **为什么这样组织**
 
-- 硬件逻辑统一用 **SystemVerilog**（`logic`、`always_comb`、`function automatic`），
-  比 Verilog-2001 少一类位宽与连线错误。
+- 硬件逻辑使用 **Verilog** 和 **SystemVerilog**。译码器和 LED 闪烁使用 Verilog，乘法器使用 SystemVerilog。
 - 报告统一用 **ctexart**，中文排版交给 `ctex`；实验 1 是 `pdfLaTeX`（MiKTeX），实验 2、3
   是 `XeLaTeX`（TeX Live）——沿用了当时的编译环境，没有为了统一而重排。
 - 二进制素材（照片、PDF、Word）走 **Git LFS**，源码与约束留在普通 Git，克隆后
@@ -63,6 +66,9 @@
 | `实验2/` | 动漫音乐播放器 | Zynq PL | 分频、乐谱 ROM、74HC595、数码管扫描、时钟/闹钟 | 完成，上板验证（无 testbench） |
 | `key_ctrl_led/` | PS/PL 按键互控 LED | Zynq PS+PL | Block Design + SDK C 程序（`XGpioPs`） | 完成（BSP 需用 `.hdf` 重建） |
 | `实验3/` | 车辆传感器综合实验 | 树莓派 4B | wiringPi + I2C，五项功能 | 完成，上板验证 |
+| `decoder3_8/` | 3 线–8 线译码器 | Zynq PL | SW0–SW2 输入三位编码，LED0–LED7 显示译码结果 | 有 testbench，覆盖 8 种输入 |
+| `led_flash/` | LED 分频闪烁 | Zynq PL | 26 位计数器、低有效异步复位、LED 定时翻转 | 含 RTL 和引脚约束 |
+| `mul4x4/` | 4×4 位无符号乘法器 | Zynq PL | SW0–SW3 和 SW4–SW7 分别输入两个操作数，LED0–LED7 显示乘积 | 有自检 testbench，覆盖 256 种输入 |
 
 ## 目录结构
 
@@ -93,6 +99,9 @@
 │   ├── report_assets/    报告插图
 │   └── 原始照片/
 ├── key_ctrl_led/         Vivado 工程 + key_ctrl_led.sdk/（SDK 工作区）
+├── decoder3_8/           3 线–8 线译码器
+├── led_flash/            LED 分频闪烁
+├── mul4x4/               4×4 位无符号乘法器
 └── docs/                 课程教程 PDF、树莓派指导书、Win10 网络共享笔记
 ```
 
